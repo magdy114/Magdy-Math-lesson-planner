@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Magdy Lesson Planner</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=20260704fix2">
 </head>
 <body>
   <div class="app-shell">
@@ -38,9 +38,9 @@
 
         <input type="hidden" name="language" id="language" value="ar">
         <input type="hidden" name="pasted_image" id="pastedImage">
+        <input name="access_code" type="hidden" value="">
 
         <div class="form-grid sticky-fields">
-          <input name="access_code" type="hidden" value="">
           <label>
             <span data-ar="اسم المعلم / المعلمة" data-en="Teacher Name">اسم المعلم / المعلمة</span>
             <input name="teacher" required placeholder="مثال: مجدي السيد">
@@ -127,32 +127,48 @@ const langToggle = document.getElementById('langToggle');
 const previewBox = document.getElementById('previewBox');
 const loading = document.getElementById('loadingOverlay');
 
+function escapeHtml(s){
+  return String(s || '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+}
+function stripHtml(s){
+  return String(s || '').replace(/<script[\s\S]*?<\/script>/gi,'').replace(/<style[\s\S]*?<\/style>/gi,'').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
+}
+async function readJsonSafely(res){
+  const text = await res.text();
+  try { return JSON.parse(text); }
+  catch(e){
+    return {ok:false, error:(currentLang==='ar'?'السيرفر رجع صفحة خطأ وليس JSON. افتح Render Logs لمعرفة السبب.':'Server returned an HTML error page, not JSON. Check Render Logs.'), details: stripHtml(text).slice(0, 500)};
+  }
+}
+function setBusy(isBusy){
+  loading.classList.toggle('hidden', !isBusy);
+  document.getElementById('generateBtn').disabled = isBusy;
+  document.getElementById('previewBtn').disabled = isBusy;
+}
+
 function setLang(lang){
   currentLang = lang;
   langInput.value = lang;
   document.documentElement.lang = lang;
   document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr';
   langToggle.textContent = lang === 'ar' ? 'English' : 'العربية';
-  document.querySelectorAll('[data-ar]').forEach(el => {
-    el.textContent = el.dataset[lang] || el.dataset.ar;
-  });
+  document.querySelectorAll('[data-ar]').forEach(el => { el.textContent = el.dataset[lang] || el.dataset.ar; });
   document.querySelectorAll('input, textarea').forEach(el => {
-    if (el.placeholder) {
-      if (lang === 'en') {
-        el.dataset.arPlaceholder = el.dataset.arPlaceholder || el.placeholder;
-        const map = {
-          'مثال: مجدي السيد': 'Example: Magdy Elsayed',
-          'مثال: رياضيات': 'Example: Mathematics',
-          'مثال: الثاني عشر متقدم': 'Example: Grade 12 Advanced',
-          'مثال: حصة واحدة (45 دقيقة)': 'Example: 1 period (45 min)',
-          'مثال: قواعد الاشتقاق': 'Example: Derivative Rules',
-          'مثال: دعم الطلاب الضعاف، تحدي للموهوبين، نشاط STEM...': 'Example: support students, gifted challenge, STEM activity...',
-          'الصق هنا نص الصورة أو جزء من الدرس إذا أردت...': 'Paste image text or lesson extract here if needed...'
-        };
-        el.placeholder = map[el.dataset.arPlaceholder] || el.placeholder;
-      } else if (el.dataset.arPlaceholder) {
-        el.placeholder = el.dataset.arPlaceholder;
-      }
+    if (!el.placeholder) return;
+    if (lang === 'en') {
+      el.dataset.arPlaceholder = el.dataset.arPlaceholder || el.placeholder;
+      const map = {
+        'مثال: مجدي السيد': 'Example: Magdy Elsayed',
+        'مثال: رياضيات': 'Example: Mathematics',
+        'مثال: الثاني عشر متقدم': 'Example: Grade 12 Advanced',
+        'مثال: حصة واحدة (45 دقيقة)': 'Example: 1 period (45 min)',
+        'مثال: قواعد الاشتقاق': 'Example: Derivative Rules',
+        'مثال: دعم الطلاب الضعاف، تحدي للموهوبين، نشاط STEM...': 'Example: support students, gifted challenge, STEM activity...',
+        'الصق هنا نص الصورة أو جزء من الدرس إذا أردت...': 'Paste image text or lesson extract here if needed...'
+      };
+      el.placeholder = map[el.dataset.arPlaceholder] || el.placeholder;
+    } else if (el.dataset.arPlaceholder) {
+      el.placeholder = el.dataset.arPlaceholder;
     }
   });
 }
@@ -162,26 +178,18 @@ function lessonTemplate(i){
   const ar = currentLang === 'ar';
   return `
   <article class="lesson-card" data-lesson="${i}">
-    <div class="lesson-head">
-      <h3>${ar ? 'الدرس ' + (i+1) : 'Lesson ' + (i+1)}</h3>
-      <button type="button" class="remove-btn" onclick="this.closest('.lesson-card').remove()">${ar ? 'حذف' : 'Remove'}</button>
-    </div>
+    <div class="lesson-head"><h3>${ar ? 'الدرس ' + (i+1) : 'Lesson ' + (i+1)}</h3><button type="button" class="remove-btn" onclick="this.closest('.lesson-card').remove()">${ar ? 'حذف' : 'Remove'}</button></div>
     <div class="form-grid two">
       <label><span>${ar ? 'عنوان الدرس' : 'Lesson Title'}</span><input name="topic[]" required placeholder="${ar ? 'مثال: قواعد الاشتقاق' : 'Example: Derivative Rules'}"></label>
       <label><span>${ar ? 'تاريخ الحصة (اختياري)' : 'Lesson Date (optional)'}</span><input name="date[]" type="date"></label>
     </div>
     <label><span>${ar ? 'ملاحظات خاصة للدرس' : 'Lesson Notes'}</span><textarea name="lesson_notes[]" rows="3" placeholder="${ar ? 'نشاط تركيز...' : 'Focus activity...'}"></textarea></label>
-    <div class="upload-box">
-      <div><strong>${ar ? 'إعداد الدرس من ملف/صورة اختياري' : 'Optional file/image lesson source'}</strong><p>${ar ? 'ارفع PDF أو Word أو PowerPoint أو صورة.' : 'Upload PDF, Word, PowerPoint or image.'}</p></div>
-      <input name="lesson_file_${i}" type="file" accept=".pdf,.docx,.pptx,.txt,.png,.jpg,.jpeg,.webp">
-      <textarea name="source_text[]" rows="3" placeholder="${ar ? 'الصق هنا نص الصورة أو جزء من الدرس إذا أردت...' : 'Paste image text or lesson extract here if needed...'}"></textarea>
-    </div>
+    <div class="upload-box"><div><strong>${ar ? 'إعداد الدرس من ملف/صورة اختياري' : 'Optional file/image lesson source'}</strong><p>${ar ? 'ارفع PDF أو Word أو PowerPoint أو صورة.' : 'Upload PDF, Word, PowerPoint or image.'}</p></div><input name="lesson_file_${i}" type="file" accept=".pdf,.docx,.pptx,.txt,.png,.jpg,.jpeg,.webp"><textarea name="source_text[]" rows="3" placeholder="${ar ? 'الصق هنا نص الصورة أو جزء من الدرس إذا أردت...' : 'Paste image text or lesson extract here if needed...'}"></textarea></div>
   </article>`;
 }
 
 document.getElementById('addLessonBtn').addEventListener('click', () => {
-  const wrap = document.getElementById('lessonsContainer');
-  wrap.insertAdjacentHTML('beforeend', lessonTemplate(lessonCount));
+  document.getElementById('lessonsContainer').insertAdjacentHTML('beforeend', lessonTemplate(lessonCount));
   lessonCount++;
 });
 
@@ -189,33 +197,54 @@ async function previewPlan(){
   const fd = new FormData(form);
   previewBox.innerHTML = `<div class="empty-state"><div class="icon">⏳</div><p>${currentLang==='ar'?'جاري توليد المعاينة...':'Generating preview...'}</p></div>`;
   try{
-    const res = await fetch('/api/preview', {method:'POST', body:fd});
-    const data = await res.json();
-    if(!data.ok){
-      previewBox.innerHTML = `<div class="alert error">${(data.errors||[data.error]).join('<br>')}</div>`;
+    const res = await fetch('/api/preview', {method:'POST', body:fd, cache:'no-store'});
+    const data = await readJsonSafely(res);
+    if(!res.ok || !data.ok){
+      const msg = (data.errors || [data.error, data.details].filter(Boolean)).join('<br>');
+      previewBox.innerHTML = `<div class="alert error">${msg || (currentLang==='ar'?'تعذر إنشاء المعاينة.':'Could not create preview.')}</div>`;
       return;
     }
-    const c = data.content;
+    const c = data.content || {};
     const labels = currentLang === 'ar' ? {
       learning_outcomes:'نواتج التعلم', success_criteria:'معايير النجاح', starter:'التمهيد', main:'الأنشطة الرئيسية', differentiation:'التمايز', kpi:'KPI AFL'
     } : {
       learning_outcomes:'Learning Outcomes', success_criteria:'Success Criteria', starter:'Starter', main:'Main Activities', differentiation:'Differentiation', kpi:'KPI AFL'
     };
-    previewBox.innerHTML = Object.keys(labels).map(k => `<div class="preview-section"><h4>${labels[k]}</h4><p>${(c[k]||'').replace(/\n/g,'<br>')}</p></div>`).join('') +
+    previewBox.innerHTML = Object.keys(labels).map(k => `<div class="preview-section"><h4>${labels[k]}</h4><p>${escapeHtml(c[k]||'').replace(/\n/g,'<br>')}</p></div>`).join('') +
       `<div class="mode-line">${c._mode === 'ai' ? 'AI Expert Mode' : 'Smart Offline Mode'}</div>`;
   }catch(err){
-    previewBox.innerHTML = `<div class="alert error">${currentLang==='ar'?'تعذر إنشاء المعاينة. تأكد أن التطبيق ما زال يعمل.':'Could not create preview. Check that the app is still running.'}<br>${err}</div>`;
+    previewBox.innerHTML = `<div class="alert error">${currentLang==='ar'?'تعذر إنشاء المعاينة.':'Could not create preview.'}<br>${escapeHtml(err)}</div>`;
   }
 }
 
 document.getElementById('previewBtn').addEventListener('click', previewPlan);
-form.addEventListener('submit', () => {
-  loading.classList.remove('hidden');
-  document.getElementById('generateBtn').disabled = true;
-  setTimeout(() => {
-    loading.classList.add('hidden');
-    document.getElementById('generateBtn').disabled = false;
-  }, 15000);
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  setBusy(true);
+  try{
+    const res = await fetch(form.action, {method:'POST', body:new FormData(form), cache:'no-store'});
+    const ct = res.headers.get('content-type') || '';
+    if(res.ok && (ct.includes('wordprocessingml') || ct.includes('zip') || ct.includes('application/octet-stream'))){
+      const blob = await res.blob();
+      const cd = res.headers.get('content-disposition') || '';
+      const match = cd.match(/filename\*?=(?:UTF-8''|\")?([^";]+)/i);
+      let filename = match ? decodeURIComponent(match[1].replace(/"/g,'')) : 'lesson_plan.docx';
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      previewBox.innerHTML = `<div class="alert success">${currentLang==='ar'?'تم إنشاء ملف Word وبدأ التحميل.':'Word file created and download started.'}</div>`;
+      return;
+    }
+    const text = await res.text();
+    const clean = stripHtml(text).slice(0, 900);
+    previewBox.innerHTML = `<div class="alert error">${currentLang==='ar'?'تعذر إنشاء ملف Word. راجع Render Logs.':'Could not create Word file. Check Render Logs.'}<br>${escapeHtml(clean)}</div>`;
+  }catch(err){
+    previewBox.innerHTML = `<div class="alert error">${currentLang==='ar'?'حدث خطأ في الاتصال بالسيرفر.':'Server connection error.'}<br>${escapeHtml(err)}</div>`;
+  }finally{
+    setBusy(false);
+  }
 });
 
 document.addEventListener('paste', (event) => {
