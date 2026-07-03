@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>مكتبة الدروس - Magdy Lesson Planner</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar glass">
+      <div class="brand">
+        <img src="{{ url_for('static', filename='school_logo.jpeg') }}" onerror="this.style.display='none'" alt="school logo">
+        <div><h1>مكتبة الدروس</h1><p>الدروس التي تم توليدها وحفظها تلقائيًا</p></div>
+      </div>
+      <div class="top-actions"><a class="nav-link" href="{{ url_for('index') }}">العودة للتطبيق</a></div>
+    </header>
+    <main class="glass library-card">
+      {% if not items %}
+        <div class="empty-state"><div class="icon">📚</div><p>لا توجد خطط محفوظة حتى الآن.</p></div>
+      {% else %}
+        <table class="library-table">
+          <thead><tr><th>التاريخ</th><th>الدرس</th><th>المعلم</th><th>الصف</th><th>تحميل</th><th>حذف</th></tr></thead>
+          <tbody>
+          {% for item in items %}
+            <tr>
+              <td>{{ item.created_at }}</td>
+              <td>{{ item.topic }}</td>
+              <td>{{ item.teacher }}</td>
+              <td>{{ item.class_name }}</td>
+              <td><a class="small-btn" href="{{ url_for('download', filename=item.filename) }}">Word</a></td>
+              <td>
+                <form action="{{ url_for('delete', filename=item.filename) }}" method="post" onsubmit="return confirm('حذف الملف؟')">
+                  <button class="danger" type="submit">حذف</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      {% endif %}
+    </main>
+  </div>
+</body>
+</html>
