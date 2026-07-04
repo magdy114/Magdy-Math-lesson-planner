@@ -1,3 +1,4 @@
+# Render entrypoint for the expert lesson-planning and Word-export engines.
 import app as core
 import lesson_engine
 import word_engine
