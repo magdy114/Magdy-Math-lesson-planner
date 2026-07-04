@@ -1,6 +1,7 @@
 from dataclasses import asdict
 from datetime import datetime
 import io
+import os
 import zipfile
 
 from werkzeug.exceptions import HTTPException
@@ -8,16 +9,15 @@ from flask import redirect, url_for, Response, request, jsonify, send_file
 from docx import Document
 from docx.shared import Pt
 
-from app import (
-    app,
-    status_payload,
-    parse_lessons_from_request,
-    build_content,
-    generate_docx,
-    store_docx_file,
-    check_usage_limit,
-    logger,
-)
+import app as app_module
+
+app = app_module.app
+status_payload = app_module.status_payload
+parse_lessons_from_request = app_module.parse_lessons_from_request
+offline_content = app_module.offline_content
+logger = app_module.logger
+check_usage_limit = app_module.check_usage_limit
+store_docx_file = app_module.store_docx_file
 
 
 @app.route('/favicon.ico')
@@ -34,6 +34,17 @@ def _ascii_name(prefix='Lesson_Plan', ext='docx'):
     return f"{prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{ext}"
 
 
+def stable_content(lesson):
+    """Fast stable content for Render Free. It avoids long API waits that kill the worker."""
+    content = offline_content(lesson)
+    content['_mode'] = 'stable_fast'
+    return content
+
+
+# Make app.py's generate_docx use stable content on Render Free.
+app_module.build_content = stable_content
+
+
 def _add_para(doc, title, text):
     p = doc.add_paragraph()
     r = p.add_run(str(title or ''))
@@ -45,7 +56,7 @@ def _add_para(doc, title, text):
 
 def fallback_docx(lesson, reason=''):
     """Create a valid Word file even if the official template fails on Render."""
-    content = build_content(lesson)
+    content = stable_content(lesson)
     doc = Document()
     doc.core_properties.title = f"Lesson Plan - {lesson.topic}"
     doc.core_properties.author = lesson.teacher or 'Magdy Lesson Planner'
@@ -66,7 +77,7 @@ def fallback_docx(lesson, reason=''):
         meta.cell(i, 1).text = str(v or '')
 
     if reason:
-        _add_para(doc, 'System note', 'Official template fallback was used. The lesson content is still generated professionally.')
+        _add_para(doc, 'System note', 'Official template fallback was used. The lesson content is generated in stable fast mode.')
 
     labels = [
         ('Key words', 'keywords'),
@@ -97,13 +108,13 @@ def fallback_docx(lesson, reason=''):
 
 
 def safe_preview():
-    """Preview endpoint that always returns JSON, even if AI/template code raises an error."""
+    """Preview endpoint that always returns JSON quickly on Render Free."""
     try:
         lessons, errors = parse_lessons_from_request()
         if errors:
             return jsonify({'ok': False, 'errors': errors, 'status': status_payload()}), 400
         lesson = lessons[0]
-        content = build_content(lesson)
+        content = stable_content(lesson)
         return jsonify({'ok': True, 'lesson': asdict(lesson), 'content': content, 'status': status_payload()})
     except Exception as exc:
         logger.exception('Safe preview failed')
@@ -116,7 +127,7 @@ def safe_preview():
 
 
 def safe_generate():
-    """Generate Word safely. Never return the browser's generic Internal Server Error page."""
+    """Generate Word safely and quickly. Avoid long AI calls on the Free Render instance."""
     try:
         lessons, errors = parse_lessons_from_request()
         if errors:
@@ -129,7 +140,7 @@ def safe_generate():
             if not ok_limit:
                 return Response(limit_msg, status=429, mimetype='text/plain; charset=utf-8')
             try:
-                docx_bytes = generate_docx(lesson)
+                docx_bytes = app_module.generate_docx(lesson)
                 try:
                     store_docx_file(lesson, docx_bytes)
                 except Exception:
