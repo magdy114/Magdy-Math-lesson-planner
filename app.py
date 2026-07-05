@@ -885,6 +885,7 @@ def curriculum_planner():
 
 @app.post("/curriculum/generate")
 def curriculum_generate():
+    started_at = time.monotonic()
     plan_type = request.form.get("plan_type", "medium")
     language = request.form.get("language", "English")
     meta = {
@@ -924,7 +925,9 @@ def curriculum_generate():
         return redirect(url_for("curriculum_planner", type=plan_type))
 
     topics = candidate_topics(source_text, manual_topics)
+    logger.info("Curriculum extraction complete: type=%s source=%s chars=%s candidates=%s elapsed=%.2fs", plan_type, source_name, len(source_text), len(topics), time.monotonic() - started_at)
     topics = refine_topics(meta, source_text, topics, language)
+    logger.info("Curriculum topics ready: type=%s topics=%s elapsed=%.2fs", plan_type, len(topics), time.monotonic() - started_at)
     if not topics:
         flash("لم يتم اكتشاف عناوين وحدات أو دروس واضحة. ارفع صفحة الفهرس أو الصق الموضوعات يدويًا.", "error")
         return redirect(url_for("curriculum_planner", type=plan_type))
@@ -950,6 +953,7 @@ def curriculum_generate():
         "detected_topics": topics[:50],
     }
     _curriculum_save_job(job_id, payload)
+    logger.info("Curriculum plan ready: type=%s job=%s elapsed=%.2fs", plan_type, job_id[:8], time.monotonic() - started_at)
     return render_template("curriculum_preview.html", job=payload, status=status_payload())
 
 

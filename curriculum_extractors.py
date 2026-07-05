@@ -8,7 +8,7 @@ from pathlib import Path
 from docx import Document
 
 
-TEXT_LIMIT = 100_000
+TEXT_LIMIT = 45_000
 
 
 NOISE_TERMS = (
@@ -86,30 +86,45 @@ def _pdf_page_lines(page) -> list[tuple[str, float, float]]:
 
 
 def extract_pdf(path: Path) -> str:
+    """Extract curriculum-heading candidates without loading book prose into memory.
+
+    Scans pages one at a time, keeps likely headings/short title lines, and ignores examples,
+    questions, copyright text, and long explanatory paragraphs.
+    """
     import fitz  # PyMuPDF
 
     parts: list[str] = []
     current_len = 0
     with fitz.open(path) as pdf:
-        max_pages = min(len(pdf), 120)
+        max_pages = min(len(pdf), 180)
         for index in range(max_pages):
-            page = pdf[index]
-            parts.append(f"\n--- Page {index + 1} ---")
-            current_len += 20
-            for line, max_size, median_size in _pdf_page_lines(page):
+            kept_on_page = 0
+            for line, max_size, median_size in _pdf_page_lines(pdf[index]):
                 clean = re.sub(r"\s+", " ", line).strip()
-                if not clean:
+                if not clean or len(clean) > 140:
                     continue
-                # Mark likely headings, while retaining regular text for AI context.
+                words = clean.split()
+                lower = clean.casefold()
                 heading = (
-                    len(clean) <= 140
-                    and max_size >= max(11.0, median_size * 1.22)
-                    and len(clean.split()) <= 18
+                    max_size >= max(11.0, median_size * 1.20)
+                    and len(words) <= 18
                 )
-                tagged = f"[HEADING] {clean}" if heading else clean
+                explicit = any(re.match(rf"^{re.escape(word)}\b", lower) for word in HEADING_WORDS)
+                numbered = bool(re.match(r"^\d+(?:\.\d+){1,3}\s+\S", clean))
+                short_title = (
+                    len(words) <= 8
+                    and not re.search(r"[.!?؟؛]$", clean)
+                    and sum(ch.isdigit() for ch in clean) <= 3
+                )
+                if not (heading or explicit or numbered or short_title):
+                    continue
+                if _is_noise(_strip_page_artifacts(clean)) or _looks_like_body(clean):
+                    continue
+                tagged = f"[HEADING] {clean}" if (heading or explicit or numbered) else clean
                 parts.append(tagged)
-                current_len += len(tagged)
-                if current_len >= TEXT_LIMIT:
+                current_len += len(tagged) + 1
+                kept_on_page += 1
+                if current_len >= TEXT_LIMIT or kept_on_page >= 14:
                     break
             if current_len >= TEXT_LIMIT:
                 break
@@ -176,7 +191,7 @@ def extract_image(path: Path) -> str:
             ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
         }.get(path.suffix.lower(), "image/jpeg")
         encoded = base64.b64encode(path.read_bytes()).decode("ascii")
-        client = OpenAI(api_key=api_key)
+        client = OpenAI(api_key=api_key, timeout=30, max_retries=0)
         response = client.responses.create(
             model=os.getenv("OPENAI_MODEL", "gpt-5.4-mini"),
             input=[{

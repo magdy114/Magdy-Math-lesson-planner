@@ -10,6 +10,19 @@ from curriculum_models import ComplianceItem, HalfTerm, LongPlan, MediumPlan, Me
 
 logger = logging.getLogger("magdy_lesson_planner.curriculum")
 
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _ai_client(api_key: str, timeout_seconds: float):
+    """Create a fail-fast OpenAI client so a slow model call never kills the Render request."""
+    from openai import OpenAI
+    return OpenAI(api_key=api_key, timeout=timeout_seconds, max_retries=0)
+
 PLAN_NOISE = (
     "copyright", "all rights reserved", "rights reserved", "mcgraw", "pearson", "publisher",
     "publishing", "isbn", "sourced from", "education, llc", "trademark", "www.", "http://",
@@ -57,21 +70,23 @@ def clean_topics(topics: list[str], limit: int = 100) -> list[str]:
 
 
 def refine_topics(meta: dict, source_text: str, candidates: list[str], language: str) -> list[str]:
-    """Use AI, when available, only to identify curriculum headings before planning.
+    """Return clean ordered headings without a second slow AI request in normal use.
 
-    This separate extraction pass prevents legal notices, examples, exercise text, and book
-    paragraphs from being placed in the weekly Content column.
+    Local extraction is authoritative. AI refinement is used only when very few headings were
+    detected and can be explicitly disabled/enabled with CURRICULUM_AI_REFINEMENT.
     """
     base = clean_topics(candidates)
+    # A useful local heading list is both faster and safer than sending a whole book twice.
+    if len(base) >= 6 or not _env_flag("CURRICULUM_AI_REFINEMENT", False):
+        return base
+
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         return base
     try:
-        from openai import OpenAI
-
-        client = OpenAI(api_key=api_key)
+        client = _ai_client(api_key, float(os.getenv("CURRICULUM_REFINE_TIMEOUT", "20")))
         system = """You are a curriculum index extraction specialist. Extract ONLY ordered curriculum unit, chapter, section, and lesson titles. Ignore and never return copyright notices, publisher names, ISBNs, author information, page numbers, website addresses, learning examples, exercise questions, explanatory paragraphs, worked solutions, differentiation notes, or legal text. Preserve the source language. A topic must be a concise teachable heading, not a sentence from the book. Prefer the supplied candidate headings and preserve their sequence. Return no commentary."""
-        candidate_block = "\n".join(f"- {x}" for x in base[:100]) or "No reliable headings were detected."
+        candidate_block = "\n".join(f"- {x}" for x in base[:60]) or "No reliable headings were detected."
         prompt = f"""
 Subject: {meta.get('subject')}
 Grade: {meta.get('grade')}
@@ -80,21 +95,20 @@ Required output language: {language}
 Candidate headings (highest priority):
 {candidate_block}
 
-Reference extract (use only to recover missing heading names; do not copy prose):
-{source_text[:35_000]}
+Short reference extract (headings only; never copy prose):
+{source_text[:8_000]}
 """.strip()
         response = client.responses.parse(
-            model=os.getenv("OPENAI_MODEL", "gpt-5.4-mini"),
+            model=os.getenv("CURRICULUM_MODEL", os.getenv("OPENAI_MODEL", "gpt-5.4-mini")),
             input=[{"role": "system", "content": system}, {"role": "user", "content": prompt}],
             text_format=TopicExtraction,
         )
         parsed = response.output_parsed
         refined = clean_topics(parsed.topics if parsed else [])
-        # Do not replace a useful deterministic list with an empty or tiny AI list.
         if len(refined) >= 3:
             return clean_topics(refined + base)
     except Exception as exc:
-        logger.warning("Curriculum topic refinement fell back to local extraction: %s", exc)
+        logger.warning("Curriculum topic refinement timed out or failed; using local headings: %s", exc)
     return base
 
 
@@ -327,10 +341,10 @@ def generate_medium(meta: dict, source_text: str, topics: list[str], language: s
     try:
         from openai import OpenAI
 
-        client = OpenAI(api_key=api_key)
+        client = _ai_client(api_key, float(os.getenv("CURRICULUM_GENERATION_TIMEOUT", "45")))
         system = """You are an expert UAE school curriculum planner. Create a Medium Term Plan that exactly fits the supplied EPS template. Produce exactly 14 instructional weeks and no entry for the mid-term break. The Content field may contain ONLY concise unit, chapter, section, or lesson titles from the authoritative clean topic list, normally one to three titles per week. NEVER put publisher names, copyright notices, ISBNs, website addresses, author names, page citations, explanatory paragraphs, examples, questions, worked solutions, or book sentences in Content. If topic evidence is insufficient, write Review, Consolidation, Application, or Assessment rather than inventing or copying prose. Write exactly two measurable Bloom-aligned learning objectives per week. Keep all cells concise for a landscape Word table. Include purposeful subject-specific resources, assessment, UAE national identity, sustainability, cross-curricular links, and safe responsible AI use. Output only the structured plan."""
         response = client.responses.parse(
-            model=os.getenv("OPENAI_MODEL", "gpt-5.4-mini"),
+            model=os.getenv("CURRICULUM_MODEL", os.getenv("OPENAI_MODEL", "gpt-5.4-mini")),
             input=[{"role": "system", "content": system}, {"role": "user", "content": _source_prompt(meta, source_text, topics, language, instructions)}],
             text_format=MediumPlan,
         )
@@ -345,16 +359,20 @@ def generate_medium(meta: dict, source_text: str, topics: list[str], language: s
 
 def generate_long(meta: dict, source_text: str, topics: list[str], language: str, instructions: str = "") -> LongPlan:
     topics = clean_topics(topics)
+    # Long-term mapping is generated locally by default. This is accurate, immediate, and
+    # prevents Render 502 errors caused by a second long structured AI request. Set
+    # CURRICULUM_LONG_AI=1 only on a larger paid instance when AI enrichment is required.
+    if not _env_flag("CURRICULUM_LONG_AI", False):
+        return _sanitize_long(_long_fallback(meta, topics, language), meta, topics, language)
+
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         return _sanitize_long(_long_fallback(meta, topics, language), meta, topics, language)
     try:
-        from openai import OpenAI
-
-        client = OpenAI(api_key=api_key)
+        client = _ai_client(api_key, float(os.getenv("CURRICULUM_GENERATION_TIMEOUT", "45")))
         system = """You are an expert UAE school curriculum planner. Create a full-year Long Term Plan for the supplied EPS template. Produce exactly six half-terms in this order: Autumn 1, Autumn 2, Spring 1, Spring 2, Summer 1, Summer 2. Each content cell may contain ONLY concise unit and lesson titles from the authoritative clean topic list. Never include copyright, publisher, ISBN, websites, page references, examples, exercises, questions, solutions, or explanatory book paragraphs. Distribute the supplied curriculum logically, include concise summative assessment opportunities, and provide exactly four implementation/compliance rows covering curriculum integration, student training, cognitive integrity, and privacy/safety. Output only the structured plan."""
         response = client.responses.parse(
-            model=os.getenv("OPENAI_MODEL", "gpt-5.4-mini"),
+            model=os.getenv("CURRICULUM_MODEL", os.getenv("OPENAI_MODEL", "gpt-5.4-mini")),
             input=[{"role": "system", "content": system}, {"role": "user", "content": _source_prompt(meta, source_text, topics, language, instructions)}],
             text_format=LongPlan,
         )
