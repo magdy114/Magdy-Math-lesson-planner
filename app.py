@@ -40,10 +40,11 @@ try:
 except Exception:  # pragma: no cover
     Presentation = None
 
-from curriculum_document_builder import build_long, build_medium, convert_to_pdf
+from curriculum_document_builder import build_long, build_medium
+from curriculum_pdf_builder import build_long_pdf, build_medium_pdf
 from curriculum_extractors import candidate_topics, extract_text as extract_curriculum_text
 from curriculum_models import LongPlan, MediumPlan
-from curriculum_ai import generate_long, generate_medium
+from curriculum_ai import generate_long, generate_medium, refine_topics
 
 BASE_DIR = Path(__file__).resolve().parent
 TEMPLATE_PATH = BASE_DIR / "assets" / "Lesson_Plan_Template_AY2026_2027.docx"
@@ -923,9 +924,10 @@ def curriculum_generate():
         return redirect(url_for("curriculum_planner", type=plan_type))
 
     topics = candidate_topics(source_text, manual_topics)
-    if manual_topics:
-        manual_lines = [x.strip() for x in manual_topics.replace(";", "\n").splitlines() if x.strip()]
-        topics = list(dict.fromkeys(manual_lines + topics))
+    topics = refine_topics(meta, source_text, topics, language)
+    if not topics:
+        flash("لم يتم اكتشاف عناوين وحدات أو دروس واضحة. ارفع صفحة الفهرس أو الصق الموضوعات يدويًا.", "error")
+        return redirect(url_for("curriculum_planner", type=plan_type))
 
     try:
         if plan_type == "long":
@@ -957,7 +959,7 @@ def curriculum_export(job_id: str, fmt: str):
         payload = _curriculum_apply_edits(_curriculum_load_job(job_id))
         _curriculum_save_job(job_id, payload)
         meta = payload["meta"]
-        safe_subject = secure_filename(meta["subject"]) or "Subject"
+        safe_subject = safe_filename(meta["subject"], "Subject")
         if payload["plan_type"] == "medium":
             plan = MediumPlan.model_validate(payload["plan"])
             docx_path = CURRICULUM_EXPORT_DIR / f"MTP_{safe_subject}_{job_id[:8]}.docx"
@@ -968,12 +970,12 @@ def curriculum_export(job_id: str, fmt: str):
             build_long(meta, plan, docx_path)
 
         if fmt == "pdf":
-            try:
-                pdf_path = convert_to_pdf(docx_path, CURRICULUM_EXPORT_DIR)
-                return send_file(pdf_path, as_attachment=True, download_name=pdf_path.name)
-            except RuntimeError as exc:
-                flash(str(exc), "error")
-                return render_template("curriculum_preview.html", job=payload, status=status_payload()), 503
+            pdf_path = CURRICULUM_EXPORT_DIR / f"{docx_path.stem}.pdf"
+            if payload["plan_type"] == "medium":
+                build_medium_pdf(meta, plan, pdf_path)
+            else:
+                build_long_pdf(meta, plan, pdf_path)
+            return send_file(pdf_path, as_attachment=True, download_name=pdf_path.name, mimetype="application/pdf")
         return send_file(
             docx_path,
             mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",

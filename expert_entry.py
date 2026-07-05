@@ -3,11 +3,8 @@ import app as core
 import lesson_engine
 import word_engine
 
-# Use the newly uploaded template even though it was placed in assets/assets.
-# This keeps the application working without asking the user to move the binary file again.
-_nested_template = core.BASE_DIR / "assets" / "assets" / "Lesson_Plan_Template_AY2026_2027.docx"
-_default_template = core.BASE_DIR / "assets" / "Lesson_Plan_Template_AY2026_2027.docx"
-core.TEMPLATE_PATH = _nested_template if _nested_template.exists() else _default_template
+# Use the official lesson-plan template stored in the main assets folder.
+core.TEMPLATE_PATH = core.BASE_DIR / "assets" / "Lesson_Plan_Template_AY2026_2027.docx"
 
 def content_for(lesson):
     return lesson_engine.build_expert_content(lesson, core)

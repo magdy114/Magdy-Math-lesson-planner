@@ -35,7 +35,7 @@ Magdy Planning Studio - التطبيق المدمج
 - لا تحذف expert_entry.py لأن Render يعتمد عليه لتشغيل محرك التحضير المتقدم.
 - قوالب Word موجودة في assets و word_templates.
 - يعمل النظام بوضع Smart Offline Mode عند غياب مفتاح الذكاء الاصطناعي.
-- تصدير Word يعمل على Render مباشرة.
-- تصدير PDF يحتاج LibreOffice مثبتًا على الخادم؛ لذلك قد لا يعمل في خطة Render المجانية.
+- تصدير Word يعمل مباشرة داخل القالب الرسمي.
+- تصدير PDF يعمل مباشرة من التطبيق بمحرك Python ولا يحتاج LibreOffice.
 - الملفات المؤقتة للخطط تحفظ في generated_plans وتحذف تلقائيًا بعد 24 ساعة.
 - ملفات تحضير الدروس تحفظ في generated_lessons.

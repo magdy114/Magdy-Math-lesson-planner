@@ -306,7 +306,7 @@ def safe_preview():
         return jsonify({'ok': True, 'lesson': asdict(lesson), 'content': stable_content(lesson), 'status': status_payload()})
     except Exception as exc:
         logger.exception('Safe preview failed')
-        return jsonify({'ok': False, 'error': 'تعذر إنشاء المعاينة. تم تسجيل الخطأ في Render Logs.', 'details': str(exc), 'status': status_payload()}), 500
+        return jsonify({'ok': False, 'error': 'تعذر إنشاء المعاينة. تم تسجيل الخطأ في سجل التطبيق.', 'details': str(exc), 'status': status_payload()}), 500
 
 
 def safe_generate():
@@ -341,7 +341,7 @@ def safe_generate():
         return send_file(zip_bytes, mimetype='application/zip', as_attachment=True, download_name=_ascii_name('Lesson_Plans_Batch', 'zip'), max_age=0)
     except Exception as exc:
         logger.exception('Safe generate failed')
-        return Response(f'Internal generation error. Render Logs details: {exc}', status=500, mimetype='text/plain; charset=utf-8')
+        return Response(f'Internal generation error. Application log details: {exc}', status=500, mimetype='text/plain; charset=utf-8')
 
 
 app.view_functions['preview'] = safe_preview

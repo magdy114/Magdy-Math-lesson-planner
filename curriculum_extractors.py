@@ -4,12 +4,33 @@ import base64
 import os
 import re
 from pathlib import Path
-from typing import Iterable
 
 from docx import Document
 
 
 TEXT_LIMIT = 100_000
+
+
+NOISE_TERMS = (
+    "copyright", "all rights reserved", "rights reserved", "permission", "permissions",
+    "reproduced", "reproduction", "publisher", "publishing", "isbn", "mcgraw", "pearson",
+    "sourced from", "source:", "education, llc", "trademark", "printed in", "edition",
+    "www.", "http://", "https://", "chapter ©", "©", "®", "™",
+    "حقوق الطبع", "جميع الحقوق محفوظة", "الناشر", "الطبعة", "ردمك", "حقوق النشر",
+    "تم النشر", "لا يجوز", "إعادة إنتاج", "المؤلف", "المراجع", "المصدر",
+)
+
+HEADING_WORDS = (
+    "unit", "chapter", "lesson", "section", "module", "topic", "strand", "domain",
+    "الوحدة", "الفصل", "الدرس", "الموضوع", "المحور", "المجال", "الباب",
+)
+
+BODY_HINTS = (
+    "for differentiation", "differentiation", "answer the following", "example", "exercise",
+    "practice", "find the", "calculate", "suppose", "if the", "where the", "is defined",
+    "حل المثال", "أوجد", "احسب", "إذا كان", "حيث إن", "يوضح الشكل", "تدرب", "مثال",
+    "نشاط", "ناقش", "فسر", "علل", "اختر الإجابة", "اكتب", "استخدم الشكل",
+)
 
 
 def _normalize(text: str) -> str:
@@ -26,7 +47,9 @@ def extract_docx(path: Path) -> str:
     parts: list[str] = []
     for p in doc.paragraphs:
         if p.text.strip():
-            parts.append(p.text.strip())
+            style_name = (p.style.name or "").lower() if p.style else ""
+            prefix = "[HEADING] " if "heading" in style_name or "title" in style_name else ""
+            parts.append(prefix + p.text.strip())
     for table in doc.tables:
         for row in table.rows:
             line = " | ".join(cell.text.strip() for cell in row.cells if cell.text.strip())
@@ -35,17 +58,60 @@ def extract_docx(path: Path) -> str:
     return _normalize("\n".join(parts))
 
 
+def _pdf_page_lines(page) -> list[tuple[str, float, float]]:
+    """Return text lines with their maximum and median font sizes."""
+    output: list[tuple[str, float, float]] = []
+    data = page.get_text("dict")
+    page_sizes: list[float] = []
+    raw_lines: list[tuple[str, float]] = []
+    for block in data.get("blocks", []):
+        if block.get("type") != 0:
+            continue
+        for line in block.get("lines", []):
+            spans = line.get("spans", [])
+            text = "".join(span.get("text", "") for span in spans).strip()
+            if not text:
+                continue
+            sizes = [float(span.get("size", 0) or 0) for span in spans if span.get("text", "").strip()]
+            max_size = max(sizes) if sizes else 0.0
+            page_sizes.extend(sizes)
+            raw_lines.append((text, max_size))
+    if not page_sizes:
+        return []
+    sorted_sizes = sorted(page_sizes)
+    median = sorted_sizes[len(sorted_sizes) // 2]
+    for text, max_size in raw_lines:
+        output.append((text, max_size, median))
+    return output
+
+
 def extract_pdf(path: Path) -> str:
     import fitz  # PyMuPDF
 
     parts: list[str] = []
+    current_len = 0
     with fitz.open(path) as pdf:
         max_pages = min(len(pdf), 120)
         for index in range(max_pages):
-            page_text = pdf[index].get_text("text")
-            if page_text.strip():
-                parts.append(f"\n--- Page {index + 1} ---\n{page_text}")
-            if sum(len(p) for p in parts) >= TEXT_LIMIT:
+            page = pdf[index]
+            parts.append(f"\n--- Page {index + 1} ---")
+            current_len += 20
+            for line, max_size, median_size in _pdf_page_lines(page):
+                clean = re.sub(r"\s+", " ", line).strip()
+                if not clean:
+                    continue
+                # Mark likely headings, while retaining regular text for AI context.
+                heading = (
+                    len(clean) <= 140
+                    and max_size >= max(11.0, median_size * 1.22)
+                    and len(clean.split()) <= 18
+                )
+                tagged = f"[HEADING] {clean}" if heading else clean
+                parts.append(tagged)
+                current_len += len(tagged)
+                if current_len >= TEXT_LIMIT:
+                    break
+            if current_len >= TEXT_LIMIT:
                 break
     return _normalize("\n".join(parts))
 
@@ -59,7 +125,9 @@ def extract_pptx(path: Path) -> str:
         slide_parts: list[str] = []
         for shape in slide.shapes:
             if hasattr(shape, "text") and shape.text.strip():
-                slide_parts.append(shape.text.strip())
+                text = shape.text.strip()
+                prefix = "[HEADING] " if getattr(shape, "shape_type", None) is not None and len(text.split()) <= 16 else ""
+                slide_parts.append(prefix + text)
         if slide_parts:
             parts.append(f"Slide {slide_no}: " + " | ".join(slide_parts))
     return _normalize("\n".join(parts))
@@ -70,13 +138,16 @@ def extract_xlsx(path: Path) -> str:
 
     wb = load_workbook(path, data_only=True, read_only=True)
     parts: list[str] = []
+    total = 0
     for ws in wb.worksheets:
-        parts.append(f"Sheet: {ws.title}")
+        parts.append(f"[HEADING] Sheet: {ws.title}")
         for row in ws.iter_rows(values_only=True):
             values = [str(v).strip() for v in row if v is not None and str(v).strip()]
             if values:
-                parts.append(" | ".join(values))
-            if sum(len(p) for p in parts) >= TEXT_LIMIT:
+                line = " | ".join(values)
+                parts.append(line)
+                total += len(line)
+            if total >= TEXT_LIMIT:
                 break
     return _normalize("\n".join(parts))
 
@@ -113,7 +184,12 @@ def extract_image(path: Path) -> str:
                 "content": [
                     {
                         "type": "input_text",
-                        "text": "Extract every curriculum unit, chapter, section, and lesson title visible in this image. Preserve the original Arabic or English wording. Return one title per line with no commentary.",
+                        "text": (
+                            "Extract only curriculum unit, chapter, section, and lesson titles visible in this image. "
+                            "Ignore publisher information, copyright, ISBN, page numbers, examples, exercise questions, "
+                            "explanatory sentences, and teacher notes. Preserve the original Arabic or English wording. "
+                            "Return one concise curriculum title per line with no commentary."
+                        ),
                     },
                     {"type": "input_image", "image_url": f"data:{mime};base64,{encoded}"},
                 ],
@@ -141,37 +217,122 @@ def extract_text(path: Path) -> str:
     raise ValueError("Unsupported file type")
 
 
-def candidate_topics(text: str, manual_topics: str = "") -> list[str]:
-    source = "\n".join([manual_topics or "", text or ""])
-    raw_lines = re.split(r"[\n;•]+", source)
-    candidates: list[str] = []
-    seen: set[str] = set()
+def _strip_page_artifacts(line: str) -> str:
+    line = re.sub(r"^\[HEADING\]\s*", "", line, flags=re.I)
+    line = re.sub(r"^---\s*Page\s+\d+\s*---$", "", line, flags=re.I)
+    line = re.sub(r"\.{2,}\s*\d+\s*$", "", line)
+    line = re.sub(r"\s+\d{1,4}\s*$", "", line) if "..." in line else line
+    line = re.sub(r"\s+", " ", line).strip(" -–—|:.,;\t")
+    return line
 
-    noise_patterns = (
-        "copyright", "all rights reserved", "page ", "contents", "table of contents",
-        "academic year", "emirates private school", "www.", "http://", "https://",
-    )
-    for raw in raw_lines:
-        line = re.sub(r"\s+", " ", raw).strip(" -–—|:.,\t")
-        if not line or len(line) < 3 or len(line) > 140:
+
+def _is_noise(line: str) -> bool:
+    lower = line.casefold()
+    if any(term in lower for term in NOISE_TERMS):
+        return True
+    if re.search(r"\b(?:19|20)\d{2}\b", line) and not re.match(r"^\d+(?:\.\d+)+\s+", line):
+        return True
+    if re.search(r"\b(?:ISBN|DOI)\b", line, re.I):
+        return True
+    if re.search(r"\b\d+(?:st|nd|rd|th)?\s*(?:edition|ed\.?|e)\s*$", line, re.I):
+        return True
+    if "@" in line or re.search(r"\.(?:com|org|net|edu)\b", lower):
+        return True
+    if re.fullmatch(r"[\d\W_]+", line):
+        return True
+    return False
+
+
+def _looks_like_body(line: str) -> bool:
+    lower = line.casefold()
+    words = line.split()
+    if any(hint in lower for hint in BODY_HINTS):
+        return True
+    # Long prose, especially with sentence punctuation, is not a curriculum title.
+    if len(words) > 14:
+        return True
+    if len(words) >= 8 and re.search(r"[.!?؟؛:]$", line):
+        return True
+    if len(line) > 110:
+        return True
+    # Reject equation/exercise fragments that carry many digits or operators.
+    digit_count = sum(ch.isdigit() for ch in line)
+    operator_count = sum(ch in "+=<>[]{}" for ch in line)
+    if digit_count >= 5 or operator_count >= 3:
+        return True
+    return False
+
+
+def _is_strong_topic(raw_line: str, cleaned: str) -> bool:
+    lower = cleaned.casefold()
+    tagged_heading = raw_line.lstrip().lower().startswith("[heading]")
+    heading_word = any(re.match(rf"^{re.escape(word)}\b", lower) for word in HEADING_WORDS)
+    hierarchical_number = bool(re.match(r"^\d+(?:\.\d+){1,3}\s+\S", cleaned))
+    simple_lesson_number = bool(re.match(r"^(?:lesson|الدرس)\s*\d+\b", lower))
+    toc_dots = bool(re.search(r"\.{2,}\s*\d+\s*$", raw_line))
+    return tagged_heading or heading_word or hierarchical_number or simple_lesson_number or toc_dots
+
+
+def _dedupe_key(line: str) -> str:
+    return re.sub(r"[^\w\u0600-\u06ff]+", "", line.casefold())
+
+
+def _manual_topic_lines(manual_topics: str) -> list[str]:
+    lines = re.split(r"[\n;•]+", manual_topics or "")
+    output: list[str] = []
+    seen: set[str] = set()
+    for raw in lines:
+        line = _strip_page_artifacts(raw)
+        if not line or len(line) < 3 or len(line) > 140 or _is_noise(line):
             continue
-        lower = line.lower()
-        if any(noise in lower for noise in noise_patterns):
-            continue
-        if re.fullmatch(r"[\d\W_]+", line):
-            continue
-        words = line.split()
-        if len(words) > 18:
-            continue
-        # Strong candidates: numbered headings, unit/chapter/lesson names, or short lines.
-        heading_like = bool(re.match(r"^(unit|chapter|lesson|section|الوحدة|الفصل|الدرس)\b", lower))
-        numbered = bool(re.match(r"^\d+(?:\.\d+)*\s+", line))
-        if not (heading_like or numbered or len(words) <= 11):
-            continue
-        key = re.sub(r"\W+", "", lower)
+        key = _dedupe_key(line)
         if key and key not in seen:
             seen.add(key)
-            candidates.append(line)
-        if len(candidates) >= 120:
+            output.append(line)
+    return output
+
+
+def candidate_topics(text: str, manual_topics: str = "") -> list[str]:
+    """Return clean curriculum headings, prioritising manually supplied topics.
+
+    Whole textbooks contain legal notices, examples, body paragraphs, and exercises. This
+    function deliberately accepts only heading-like source lines, while manual entries are
+    treated as authoritative.
+    """
+    manual = _manual_topic_lines(manual_topics)
+    candidates: list[str] = list(manual)
+    seen: set[str] = {_dedupe_key(x) for x in manual}
+
+    raw_lines = re.split(r"[\n•]+", text or "")
+    strong_lines: list[str] = []
+    secondary_lines: list[str] = []
+
+    for raw in raw_lines:
+        cleaned = _strip_page_artifacts(raw)
+        if not cleaned or len(cleaned) < 3 or len(cleaned) > 140:
+            continue
+        if _is_noise(cleaned) or _looks_like_body(cleaned):
+            continue
+        words = cleaned.split()
+        strong = _is_strong_topic(raw, cleaned)
+        # Secondary candidates are intentionally strict: short title-style phrases only.
+        secondary = (
+            len(words) <= 7
+            and not re.search(r"[.!?؟؛]", cleaned)
+            and sum(ch.isdigit() for ch in cleaned) <= 2
+        )
+        if strong:
+            strong_lines.append(cleaned)
+        elif secondary:
+            secondary_lines.append(cleaned)
+
+    for line in strong_lines + secondary_lines:
+        key = _dedupe_key(line)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        candidates.append(line)
+        if len(candidates) >= 100:
             break
+
     return candidates

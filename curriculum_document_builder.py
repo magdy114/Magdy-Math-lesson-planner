@@ -1,9 +1,5 @@
 from __future__ import annotations
 
-import os
-import shutil
-import subprocess
-import tempfile
 from pathlib import Path
 
 from docx import Document
@@ -140,24 +136,27 @@ def build_medium(meta: dict, plan: MediumPlan, output_path: Path) -> Path:
     for item, row_idx in zip(plan.weeks[:14], week_rows):
         row = weekly.rows[row_idx]
         _cant_split(row)
-        _set_cell_text(row.cells[1], item.content, 7.5, False, rtl)
-        _set_cell_text(row.cells[2], item.learning_objectives, 7.2, False, rtl)
-        _set_cell_text(row.cells[3], item.ai_literacy, 7.0, False, rtl)
-        _set_cell_text(row.cells[4], item.resources, 7.0, False, rtl)
+        _set_cell_text(row.cells[1], item.content, 6.7, False, rtl)
+        _set_cell_text(row.cells[2], item.learning_objectives, 6.4, False, rtl)
+        _set_cell_text(row.cells[3], item.ai_literacy, 6.2, False, rtl)
+        _set_cell_text(row.cells[4], item.resources, 6.2, False, rtl)
     # Keep break row concise and blank in planning columns.
     for c in range(1, 5):
         _set_cell_text(weekly.rows[7].cells[c], "", 7, False, rtl)
 
     summary = doc.tables[2]
-    _set_cell_text(summary.cell(0, 0), f"Assessment Opportunities:\n{plan.assessment_opportunities}", 7.5, True, rtl)
-    _set_cell_text(summary.cell(0, 1), f"21st Century Skills:\n{plan.century_skills}", 7.5, True, rtl)
-    _set_cell_text(summary.cell(0, 2), f"Vocabulary/Key Words:\n{plan.vocabulary}", 7.5, True, rtl)
+    _cant_split(summary.rows[0])
+    _set_cell_text(summary.cell(0, 0), f"Assessment Opportunities:\n{plan.assessment_opportunities}", 6.8, True, rtl)
+    _set_cell_text(summary.cell(0, 1), f"21st Century Skills:\n{plan.century_skills}", 6.8, True, rtl)
+    _set_cell_text(summary.cell(0, 2), f"Vocabulary/Key Words:\n{plan.vocabulary}", 6.8, True, rtl)
 
     footer = doc.tables[3]
-    _set_cell_text(footer.cell(0, 0), f"Link to EPS Guiding Statement (Competences/HQL/Values):\n{plan.eps_guiding_statement}", 8, True, rtl)
-    _set_cell_text(footer.cell(1, 0), f"Global Citizenship:\n{plan.global_citizenship}", 8, True, rtl)
-    _set_cell_text(footer.cell(2, 0), f"Cross-curricular / horizontal articulation:\n{plan.cross_curricular}", 8, True, rtl)
-    _set_cell_text(footer.cell(3, 0), f"Link to National Identity Mark:\n{plan.national_identity}", 8, True, rtl)
+    for footer_row in footer.rows[:4]:
+        _cant_split(footer_row)
+    _set_cell_text(footer.cell(0, 0), f"Link to EPS Guiding Statement (Competences/HQL/Values):\n{plan.eps_guiding_statement}", 7.0, True, rtl)
+    _set_cell_text(footer.cell(1, 0), f"Global Citizenship:\n{plan.global_citizenship}", 7.0, True, rtl)
+    _set_cell_text(footer.cell(2, 0), f"Cross-curricular / horizontal articulation:\n{plan.cross_curricular}", 7.0, True, rtl)
+    _set_cell_text(footer.cell(3, 0), f"Link to National Identity Mark:\n{plan.national_identity}", 7.0, True, rtl)
 
     ai_cell = footer.cell(4, 0)
     ai_text = (
@@ -229,25 +228,3 @@ def build_long(meta: dict, plan: LongPlan, output_path: Path) -> Path:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     doc.save(output_path)
     return output_path
-
-
-def convert_to_pdf(docx_path: Path, output_dir: Path) -> Path:
-    output_dir.mkdir(parents=True, exist_ok=True)
-    office = shutil.which("libreoffice") or shutil.which("soffice")
-    if not office:
-        raise RuntimeError("PDF export requires LibreOffice on the server. Word export is available now.")
-    env = os.environ.copy()
-    with tempfile.TemporaryDirectory(prefix="lo_profile_") as profile:
-        cmd = [
-            office,
-            f"-env:UserInstallation=file://{profile}",
-            "--headless",
-            "--convert-to", "pdf",
-            "--outdir", str(output_dir),
-            str(docx_path),
-        ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=env)
-    pdf_path = output_dir / f"{docx_path.stem}.pdf"
-    if result.returncode != 0 or not pdf_path.exists():
-        raise RuntimeError(result.stderr.strip() or result.stdout.strip() or "PDF conversion failed")
-    return pdf_path

@@ -5,7 +5,7 @@
   <title>Review Curriculum Plan</title>
   <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='curriculum.css') }}?v=20260705">
+  <link rel="stylesheet" href="{{ url_for('static', filename='curriculum.css') }}?v=20260705fix2">
 </head>
 <body>
 <main class="shell preview-shell">
@@ -75,7 +75,8 @@
     {% endif %}
 
     <section class="detected"><h3 data-ar="الموضوعات التي تم اكتشافها" data-en="Detected Curriculum Topics">الموضوعات التي تم اكتشافها</h3><div>{% for topic in job.detected_topics %}<span>{{ topic }}</span>{% endfor %}</div></section>
-    <p class="pdf-note" data-ar="تصدير Word يعمل مباشرة. تصدير PDF يحتاج LibreOffice مثبتًا على خدمة الاستضافة." data-en="Word export works directly. PDF export requires LibreOffice on the hosting service.">تصدير Word يعمل مباشرة. تصدير PDF يحتاج LibreOffice مثبتًا على خدمة الاستضافة.</p>
+    <p class="pdf-note" data-ar="تصدير Word وPDF يعملان مباشرة من التطبيق. راجع الحقول ثم اختر الصيغة المطلوبة." data-en="Word and PDF export work directly in the application. Review the fields, then choose the required format.">تصدير Word وPDF يعملان مباشرة من التطبيق. راجع الحقول ثم اختر الصيغة المطلوبة.</p>
+    <div id="exportMessage"></div>
     <div class="export-bar">
       <a class="back-btn" href="{{ url_for('curriculum_planner', type=job.plan_type) }}" data-ar="إنشاء خطة جديدة" data-en="Create New Plan">إنشاء خطة جديدة</a>
       <button type="button" class="word-btn" data-format="docx" data-ar="تنزيل Word" data-en="Download Word">تنزيل Word</button>
@@ -89,7 +90,24 @@
   function setUiLang(next){uiLang=next;document.documentElement.lang=next;document.documentElement.dir=next==='ar'?'rtl':'ltr';document.querySelectorAll('[data-ar]').forEach(el=>el.textContent=el.dataset[next]);toggle.textContent=next==='ar'?'English':'العربية';localStorage.setItem('planning_ui_lang',next)}
   toggle.addEventListener('click',()=>setUiLang(uiLang==='ar'?'en':'ar'));
   const form=document.getElementById('exportForm');
-  document.querySelectorAll('[data-format]').forEach(btn=>btn.addEventListener('click',()=>{document.getElementById('loadingLayer').classList.remove('hidden');const fmt=btn.dataset.format;form.action=`{{ url_for('curriculum_export', job_id=job.job_id, fmt='FORMAT') }}`.replace('FORMAT',fmt);form.submit()}));
+  const loading=document.getElementById('loadingLayer');
+  const exportMessage=document.getElementById('exportMessage');
+  function filenameFromHeader(value,fallback){const m=(value||'').match(/filename\*?=(?:UTF-8''|\")?([^\";]+)/i);return m?decodeURIComponent(m[1].replace(/\"/g,'')):fallback}
+  document.querySelectorAll('[data-format]').forEach(btn=>btn.addEventListener('click',async()=>{
+    const fmt=btn.dataset.format;
+    const url=`{{ url_for('curriculum_export', job_id=job.job_id, fmt='FORMAT') }}`.replace('FORMAT',fmt);
+    loading.classList.remove('hidden');exportMessage.innerHTML='';
+    document.querySelectorAll('[data-format]').forEach(x=>x.disabled=true);
+    try{
+      const res=await fetch(url,{method:'POST',body:new FormData(form),cache:'no-store'});
+      if(!res.ok){throw new Error((await res.text()).replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').slice(0,500))}
+      const blob=await res.blob();
+      const name=filenameFromHeader(res.headers.get('content-disposition'),`curriculum_plan.${fmt}`);
+      const objectUrl=URL.createObjectURL(blob),a=document.createElement('a');a.href=objectUrl;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(objectUrl),2000);
+      exportMessage.innerHTML=`<div class="alert success">${uiLang==='ar'?'تم تجهيز الملف وبدأ التحميل بنجاح.':'The file is ready and the download has started.'}</div>`;
+    }catch(err){exportMessage.innerHTML=`<div class="alert error">${uiLang==='ar'?'تعذر تصدير الملف: ':'Export failed: '}${String(err.message||err)}</div>`}
+    finally{loading.classList.add('hidden');document.querySelectorAll('[data-format]').forEach(x=>x.disabled=false)}
+  }));
   setUiLang(uiLang);
 </script>
 </body></html>

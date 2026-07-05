@@ -4,6 +4,12 @@ from typing import List
 from pydantic import BaseModel, Field
 
 
+
+
+class TopicExtraction(BaseModel):
+    topics: List[str] = Field(description="Ordered clean curriculum unit, chapter, section, and lesson titles only")
+
+
 class MediumWeek(BaseModel):
     content: str = Field(description="Concise unit and lesson content for this week")
     learning_objectives: str = Field(description="Two measurable learning objectives, concise")

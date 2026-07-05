@@ -137,7 +137,7 @@ async function readJsonSafely(res){
   const text = await res.text();
   try { return JSON.parse(text); }
   catch(e){
-    return {ok:false, error:(currentLang==='ar'?'السيرفر رجع صفحة خطأ وليس JSON. افتح Render Logs لمعرفة السبب.':'Server returned an HTML error page, not JSON. Check Render Logs.'), details: stripHtml(text).slice(0, 500)};
+    return {ok:false, error:(currentLang==='ar'?'السيرفر رجع صفحة خطأ وليس JSON. راجع سجل التطبيق لمعرفة السبب.':'Server returned an HTML error page, not JSON. Check the application logs.'), details: stripHtml(text).slice(0, 500)};
   }
 }
 function setBusy(isBusy){
@@ -239,7 +239,7 @@ form.addEventListener('submit', async (e) => {
     }
     const text = await res.text();
     const clean = stripHtml(text).slice(0, 900);
-    previewBox.innerHTML = `<div class="alert error">${currentLang==='ar'?'تعذر إنشاء ملف Word. راجع Render Logs.':'Could not create Word file. Check Render Logs.'}<br>${escapeHtml(clean)}</div>`;
+    previewBox.innerHTML = `<div class="alert error">${currentLang==='ar'?'تعذر إنشاء ملف Word. راجع سجل التطبيق.':'Could not create Word file. Check the application logs.'}<br>${escapeHtml(clean)}</div>`;
   }catch(err){
     previewBox.innerHTML = `<div class="alert error">${currentLang==='ar'?'حدث خطأ في الاتصال بالسيرفر.':'Server connection error.'}<br>${escapeHtml(err)}</div>`;
   }finally{
