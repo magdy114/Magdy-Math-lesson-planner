@@ -66,7 +66,6 @@ def _operand_left(text: str, slash: int) -> tuple[int, str] | None:
                 depth -= 1
                 if depth == 0:
                     start = cursor
-                    # Include a function name immediately before the parenthesis.
                     name_cursor = start - 1
                     while name_cursor >= 0 and (text[name_cursor].isalnum() or text[name_cursor] in "_′'"):
                         name_cursor -= 1
@@ -103,16 +102,7 @@ def _operand_right(text: str, slash: int) -> tuple[int, str] | None:
 def _slash_to_frac(expression: str) -> str:
     text = expression
     for _ in range(12):
-        slash = -1
-        depth = 0
-        for index, char in enumerate(text):
-            if char == "(":
-                depth += 1
-            elif char == ")":
-                depth -= 1
-            elif char == "/":
-                slash = index
-                break
+        slash = text.find("/")
         if slash < 0:
             break
         left = _operand_left(text, slash)
@@ -123,8 +113,7 @@ def _slash_to_frac(expression: str) -> str:
         right_end, denominator = right
         numerator = numerator[1:-1] if numerator.startswith("(") and numerator.endswith(")") else numerator
         denominator = denominator[1:-1] if denominator.startswith("(") and denominator.endswith(")") else denominator
-        replacement = f"frac({numerator},{denominator})"
-        text = text[:left_start] + replacement + text[right_end:]
+        text = text[:left_start] + f"frac({numerator},{denominator})" + text[right_end:]
     return text
 
 
@@ -145,8 +134,7 @@ def _replace_custom_functions(text: str) -> str:
     while index < len(text):
         matched = None
         for name in ("frac", "sqrt", "lim", "int", "sum"):
-            token = name + "("
-            if text.startswith(token, index):
+            if text.startswith(name + "(", index):
                 matched = name
                 break
         if matched is None:
@@ -256,12 +244,7 @@ def _parse_term(text: str, definitions: dict[str, Any]):
         "pi": sp.pi, "e": sp.E,
     }
     try:
-        result = parse_expr(
-            converted,
-            local_dict=local_dict,
-            transformations=transformations,
-            evaluate=True,
-        )
+        result = parse_expr(converted, local_dict=local_dict, transformations=transformations, evaluate=True)
         if isinstance(result, (sp.Limit, sp.Integral, sp.Sum)):
             result = result.doit()
         return result
@@ -287,25 +270,24 @@ def _validate_equation(expression: str, definitions: dict[str, Any]) -> tuple[bo
         return False, normal
     parts = _top_level_equals(normal)
     if len(parts) == 1:
-        # Stand-alone mathematical expressions are display items, not claims.
         return None, normal
 
     if len(parts) == 2 and _record_definition(parts[0], parts[1], definitions):
         return None, normal
 
-    # A single variable assignment such as x=2 is contextual data, not an identity.
     if len(parts) == 2 and re.fullmatch(r"[A-Za-z]", parts[0]):
         return None, normal
 
-    evaluated = [_parse_term(part, definitions) for part in parts]
+    # In a chain such as m=f'(2)=4, the first symbol is a label/assignment.
+    compare_parts = parts[1:] if len(parts) > 2 and re.fullmatch(r"[A-Za-z]", parts[0]) else parts
+    evaluated = [_parse_term(part, definitions) for part in compare_parts]
     if any(item is None for item in evaluated):
         return None, normal
 
     sp, _, _ = _sympy_tools()
     try:
         for left, right in zip(evaluated, evaluated[1:]):
-            difference = sp.simplify(left - right)
-            if difference != 0:
+            if sp.simplify(left - right) != 0:
                 return False, normal
         return True, normal
     except Exception:
@@ -341,7 +323,14 @@ def install(lesson_engine) -> None:
         output = original_build(lesson, app)
         if lesson_engine.family(lesson.subject) != "math":
             return output
+
         fallback = lesson_engine.special(lesson, app)
+        try:
+            import lesson_runtime_patch
+            fallback = lesson_runtime_patch._postprocess(lesson, fallback, fallback)
+        except Exception:
+            pass
+
         checked = dict(output)
         valid_total = invalid_total = 0
         for key in MATH_SECTIONS:
