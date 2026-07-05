@@ -3,9 +3,13 @@ import app as core
 import lesson_engine
 import word_engine
 import curriculum_runtime_patch
+import lesson_density_patch
 
 # Use the official lesson-plan template stored in the main assets folder.
 core.TEMPLATE_PATH = core.BASE_DIR / "assets" / "Lesson_Plan_Template_AY2026_2027.docx"
+
+# Increase content detail and balance while preserving the official template.
+lesson_density_patch.install(lesson_engine)
 
 
 def content_for(lesson):
