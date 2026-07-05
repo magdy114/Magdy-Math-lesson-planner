@@ -8,5 +8,14 @@ try:
         lesson_runtime_patch.install(lesson_engine)
         lesson_engine._professional_runtime_installed = True
 except Exception:
-    # The application still starts if optional bootstrap work cannot be loaded.
+    pass
+
+try:
+    import word_engine
+    import lesson_layout_patch
+
+    if not getattr(word_engine, "_professional_layout_installed", False):
+        lesson_layout_patch.install(word_engine)
+        word_engine._professional_layout_installed = True
+except Exception:
     pass
