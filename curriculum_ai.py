@@ -335,6 +335,12 @@ def _sanitize_long(plan: LongPlan, meta: dict, topics: list[str], language: str)
 
 def generate_medium(meta: dict, source_text: str, topics: list[str], language: str, instructions: str = "") -> MediumPlan:
     topics = clean_topics(topics)
+    # Use the deterministic planner by default on Render so curriculum generation
+    # always completes inside the web request. AI enrichment can be enabled only
+    # on a larger instance with CURRICULUM_MEDIUM_AI=1.
+    if not _env_flag("CURRICULUM_MEDIUM_AI", False):
+        return _sanitize_medium(_medium_fallback(meta, topics, language), meta, topics, language)
+
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         return _sanitize_medium(_medium_fallback(meta, topics, language), meta, topics, language)

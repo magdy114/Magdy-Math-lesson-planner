@@ -1,40 +1,37 @@
 from __future__ import annotations
 
-import base64
 import os
 import re
+import time
 from pathlib import Path
 
-from docx import Document
-
-
-TEXT_LIMIT = 45_000
-
-
-NOISE_TERMS = (
-    "copyright", "all rights reserved", "rights reserved", "permission", "permissions",
-    "reproduced", "reproduction", "publisher", "publishing", "isbn", "mcgraw", "pearson",
-    "sourced from", "source:", "education, llc", "trademark", "printed in", "edition",
-    "www.", "http://", "https://", "chapter ©", "©", "®", "™",
-    "حقوق الطبع", "جميع الحقوق محفوظة", "الناشر", "الطبعة", "ردمك", "حقوق النشر",
-    "تم النشر", "لا يجوز", "إعادة إنتاج", "المؤلف", "المراجع", "المصدر",
+TEXT_LIMIT = 24000
+TOPIC_LIMIT = 100
+NOISE = (
+    "copyright", "all rights reserved", "publisher", "publishing", "isbn", "mcgraw",
+    "pearson", "trademark", "www.", "http://", "https://", "©", "®", "™",
+    "حقوق الطبع", "جميع الحقوق محفوظة", "الناشر", "الطبعة", "حقوق النشر",
+    "المؤلف", "المراجع", "المصدر",
 )
-
-HEADING_WORDS = (
+HEADS = (
     "unit", "chapter", "lesson", "section", "module", "topic", "strand", "domain",
     "الوحدة", "الفصل", "الدرس", "الموضوع", "المحور", "المجال", "الباب",
 )
-
-BODY_HINTS = (
-    "for differentiation", "differentiation", "answer the following", "example", "exercise",
-    "practice", "find the", "calculate", "suppose", "if the", "where the", "is defined",
-    "حل المثال", "أوجد", "احسب", "إذا كان", "حيث إن", "يوضح الشكل", "تدرب", "مثال",
-    "نشاط", "ناقش", "فسر", "علل", "اختر الإجابة", "اكتب", "استخدم الشكل",
+BODY = (
+    "example", "exercise", "practice", "find the", "calculate", "suppose", "if the",
+    "learning objective", "success criteria", "حل المثال", "أوجد", "احسب", "إذا كان",
+    "مثال", "نشاط", "ناقش", "فسر", "علل", "اختر الإجابة",
 )
+GENERIC = {
+    "contents", "table of contents", "index", "glossary", "references", "introduction",
+    "answers", "answer key", "review", "assessment", "guided practice", "homework",
+    "objectives", "resources", "الفهرس", "المحتويات", "المقدمة", "المراجع",
+    "الإجابات", "مراجعة", "تقويم", "أهداف التعلم", "المصادر", "الواجب",
+}
 
 
-def _normalize(text: str) -> str:
-    text = text.replace("\x00", " ")
+def _normal(text: str) -> str:
+    text = (text or "").replace("\x00", " ")
     text = re.sub(r"[\t\u00a0]+", " ", text)
     text = re.sub(r"\r\n?", "\n", text)
     text = re.sub(r"[ ]{2,}", " ", text)
@@ -42,175 +39,166 @@ def _normalize(text: str) -> str:
     return text.strip()[:TEXT_LIMIT]
 
 
-def extract_docx(path: Path) -> str:
-    doc = Document(path)
-    parts: list[str] = []
-    for p in doc.paragraphs:
-        if p.text.strip():
-            style_name = (p.style.name or "").lower() if p.style else ""
-            prefix = "[HEADING] " if "heading" in style_name or "title" in style_name else ""
-            parts.append(prefix + p.text.strip())
-    for table in doc.tables:
-        for row in table.rows:
-            line = " | ".join(cell.text.strip() for cell in row.cells if cell.text.strip())
-            if line:
-                parts.append(line)
-    return _normalize("\n".join(parts))
+def _clean(line: str) -> str:
+    line = re.sub(r"^\[HEADING\]\s*", "", str(line or ""), flags=re.I)
+    line = re.sub(r"\.{2,}\s*\d+\s*$", "", line)
+    line = re.sub(r"^\s*(?:page|صفحة)\s*\d+\s*$", "", line, flags=re.I)
+    return re.sub(r"\s+", " ", line).strip(" -–—|:;,.\t")
 
 
-def _pdf_page_lines(page) -> list[tuple[str, float, float]]:
-    """Return text lines with their maximum and median font sizes."""
-    output: list[tuple[str, float, float]] = []
-    data = page.get_text("dict")
-    page_sizes: list[float] = []
-    raw_lines: list[tuple[str, float]] = []
-    for block in data.get("blocks", []):
-        if block.get("type") != 0:
-            continue
-        for line in block.get("lines", []):
-            spans = line.get("spans", [])
-            text = "".join(span.get("text", "") for span in spans).strip()
-            if not text:
-                continue
-            sizes = [float(span.get("size", 0) or 0) for span in spans if span.get("text", "").strip()]
-            max_size = max(sizes) if sizes else 0.0
-            page_sizes.extend(sizes)
-            raw_lines.append((text, max_size))
-    if not page_sizes:
-        return []
-    sorted_sizes = sorted(page_sizes)
-    median = sorted_sizes[len(sorted_sizes) // 2]
-    for text, max_size in raw_lines:
-        output.append((text, max_size, median))
-    return output
+def _bad(line: str) -> bool:
+    line = _clean(line)
+    low = line.casefold()
+    words = line.split()
+    if not line or low in GENERIC or any(x in low for x in NOISE + BODY):
+        return True
+    if len(line) > 120 or len(words) > 17:
+        return True
+    if re.search(r"\.(?:com|org|net|edu|ae)\b", low) or "@" in line:
+        return True
+    if re.fullmatch(r"[\d\W_]+", line):
+        return True
+    if sum(c.isdigit() for c in line) >= 6:
+        return True
+    return False
+
+
+def _strong(raw: str, line: str) -> bool:
+    low = line.casefold()
+    return (
+        str(raw).lstrip().lower().startswith("[heading]")
+        or any(re.match(rf"^{re.escape(w)}\b", low) for w in HEADS)
+        or bool(re.match(r"^\d+(?:\.\d+){1,3}\s+\S", line))
+    )
+
+
+def _short(line: str) -> bool:
+    return 1 <= len(line.split()) <= 11 and len(line) <= 100 and not re.search(r"[.!?؟؛]$", line)
+
+
+def _key(line: str) -> str:
+    return re.sub(r"[^\w\u0600-\u06ff]+", "", line.casefold())
 
 
 def extract_pdf(path: Path) -> str:
-    """Extract curriculum-heading candidates without loading book prose into memory.
+    import fitz
 
-    Scans pages one at a time, keeps likely headings/short title lines, and ignores examples,
-    questions, copyright text, and long explanatory paragraphs.
-    """
-    import fitz  # PyMuPDF
+    max_pages = max(8, min(48, int(os.getenv("CURRICULUM_PDF_MAX_PAGES", "32"))))
+    seconds = max(4.0, min(15.0, float(os.getenv("CURRICULUM_EXTRACT_SECONDS", "10"))))
+    deadline = time.monotonic() + seconds
+    out: list[str] = []
 
-    parts: list[str] = []
-    current_len = 0
     with fitz.open(path) as pdf:
-        max_pages = min(len(pdf), 180)
-        for index in range(max_pages):
-            kept_on_page = 0
-            for line, max_size, median_size in _pdf_page_lines(pdf[index]):
-                clean = re.sub(r"\s+", " ", line).strip()
-                if not clean or len(clean) > 140:
-                    continue
-                words = clean.split()
-                lower = clean.casefold()
-                heading = (
-                    max_size >= max(11.0, median_size * 1.20)
-                    and len(words) <= 18
-                )
-                explicit = any(re.match(rf"^{re.escape(word)}\b", lower) for word in HEADING_WORDS)
-                numbered = bool(re.match(r"^\d+(?:\.\d+){1,3}\s+\S", clean))
-                short_title = (
-                    len(words) <= 8
-                    and not re.search(r"[.!?؟؛]$", clean)
-                    and sum(ch.isdigit() for ch in clean) <= 3
-                )
-                if not (heading or explicit or numbered or short_title):
-                    continue
-                if _is_noise(_strip_page_artifacts(clean)) or _looks_like_body(clean):
-                    continue
-                tagged = f"[HEADING] {clean}" if (heading or explicit or numbered) else clean
-                parts.append(tagged)
-                current_len += len(tagged) + 1
-                kept_on_page += 1
-                if current_len >= TEXT_LIMIT or kept_on_page >= 14:
-                    break
-            if current_len >= TEXT_LIMIT:
+        if getattr(pdf, "needs_pass", False):
+            raise ValueError("The PDF is password protected.")
+
+        try:
+            toc = pdf.get_toc(simple=True) or []
+        except Exception:
+            toc = []
+        for item in toc[:200]:
+            if len(item) >= 2:
+                title = _clean(str(item[1]))
+                if not _bad(title):
+                    out.append("[HEADING] " + title)
+        if len(out) >= 4:
+            return _normal("\n".join(out))
+
+        for page_no in range(min(len(pdf), max_pages)):
+            if time.monotonic() >= deadline or len("\n".join(out)) >= TEXT_LIMIT:
                 break
-    return _normalize("\n".join(parts))
+            try:
+                text = pdf[page_no].get_text("text", sort=True) or ""
+            except Exception:
+                continue
+            kept = 0
+            for raw in text.splitlines():
+                line = _clean(raw)
+                if _bad(line) or not (_strong(raw, line) or _short(line)):
+                    continue
+                out.append(("[HEADING] " if _strong(raw, line) else "") + line)
+                kept += 1
+                if kept >= 14:
+                    break
+    return _normal("\n".join(out))
+
+
+def extract_docx(path: Path) -> str:
+    from docx import Document
+
+    deadline = time.monotonic() + 10
+    doc = Document(path)
+    out: list[str] = []
+    total = 0
+    for p in doc.paragraphs:
+        if time.monotonic() >= deadline or total >= TEXT_LIMIT:
+            break
+        text = p.text.strip()
+        if not text:
+            continue
+        style = (p.style.name or "").lower() if p.style else ""
+        value = ("[HEADING] " if "heading" in style or "title" in style else "") + text
+        out.append(value)
+        total += len(value)
+    for table in doc.tables[:12]:
+        if time.monotonic() >= deadline or total >= TEXT_LIMIT:
+            break
+        for row in table.rows[:60]:
+            value = " | ".join(c.text.strip() for c in row.cells if c.text.strip())
+            if value:
+                out.append(value)
+                total += len(value)
+    return _normal("\n".join(out))
 
 
 def extract_pptx(path: Path) -> str:
     from pptx import Presentation
 
-    prs = Presentation(path)
-    parts: list[str] = []
-    for slide_no, slide in enumerate(prs.slides, 1):
-        slide_parts: list[str] = []
+    out: list[str] = []
+    for slide in Presentation(path).slides[:100]:
         for shape in slide.shapes:
-            if hasattr(shape, "text") and shape.text.strip():
-                text = shape.text.strip()
-                prefix = "[HEADING] " if getattr(shape, "shape_type", None) is not None and len(text.split()) <= 16 else ""
-                slide_parts.append(prefix + text)
-        if slide_parts:
-            parts.append(f"Slide {slide_no}: " + " | ".join(slide_parts))
-    return _normalize("\n".join(parts))
+            text = getattr(shape, "text", "")
+            if not isinstance(text, str):
+                continue
+            for raw in text.splitlines():
+                line = _clean(raw)
+                if not _bad(line) and (_strong(raw, line) or _short(line)):
+                    out.append(("[HEADING] " if _strong(raw, line) else "") + line)
+        if len("\n".join(out)) >= TEXT_LIMIT:
+            break
+    return _normal("\n".join(out))
 
 
 def extract_xlsx(path: Path) -> str:
     from openpyxl import load_workbook
 
     wb = load_workbook(path, data_only=True, read_only=True)
-    parts: list[str] = []
-    total = 0
-    for ws in wb.worksheets:
-        parts.append(f"[HEADING] Sheet: {ws.title}")
-        for row in ws.iter_rows(values_only=True):
-            values = [str(v).strip() for v in row if v is not None and str(v).strip()]
-            if values:
-                line = " | ".join(values)
-                parts.append(line)
-                total += len(line)
-            if total >= TEXT_LIMIT:
-                break
-    return _normalize("\n".join(parts))
+    out: list[str] = []
+    try:
+        for ws in wb.worksheets[:10]:
+            for index, row in enumerate(ws.iter_rows(values_only=True), 1):
+                if index > 250:
+                    break
+                values = [str(v).strip() for v in row if v is not None and str(v).strip()]
+                if values:
+                    out.append(" | ".join(values))
+                if len("\n".join(out)) >= TEXT_LIMIT:
+                    return _normal("\n".join(out))
+    finally:
+        wb.close()
+    return _normal("\n".join(out))
 
 
 def extract_image(path: Path) -> str:
-    # Try local OCR first, then vision through the configured AI model.
     try:
         import pytesseract
         from PIL import Image
 
-        languages = os.getenv("TESSERACT_LANG", "eng+ara")
-        text = _normalize(pytesseract.image_to_string(Image.open(path), lang=languages))
-        if len(text) >= 20:
-            return text
-    except Exception:
-        pass
-
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        return ""
-    try:
-        from openai import OpenAI
-
-        mime = {
-            ".png": "image/png", ".webp": "image/webp",
-            ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-        }.get(path.suffix.lower(), "image/jpeg")
-        encoded = base64.b64encode(path.read_bytes()).decode("ascii")
-        client = OpenAI(api_key=api_key, timeout=30, max_retries=0)
-        response = client.responses.create(
-            model=os.getenv("OPENAI_MODEL", "gpt-5.4-mini"),
-            input=[{
-                "role": "user",
-                "content": [
-                    {
-                        "type": "input_text",
-                        "text": (
-                            "Extract only curriculum unit, chapter, section, and lesson titles visible in this image. "
-                            "Ignore publisher information, copyright, ISBN, page numbers, examples, exercise questions, "
-                            "explanatory sentences, and teacher notes. Preserve the original Arabic or English wording. "
-                            "Return one concise curriculum title per line with no commentary."
-                        ),
-                    },
-                    {"type": "input_image", "image_url": f"data:{mime};base64,{encoded}"},
-                ],
-            }],
-        )
-        return _normalize(response.output_text)
+        with Image.open(path) as image:
+            image.thumbnail((2000, 2000))
+            return _normal(pytesseract.image_to_string(
+                image, lang=os.getenv("TESSERACT_LANG", "eng+ara"), timeout=7
+            ))
     except Exception:
         return ""
 
@@ -221,133 +209,51 @@ def extract_text(path: Path) -> str:
         return extract_pdf(path)
     if suffix == ".docx":
         return extract_docx(path)
-    if suffix in {".txt", ".md", ".csv"}:
-        return _normalize(path.read_text(encoding="utf-8", errors="ignore"))
     if suffix == ".pptx":
         return extract_pptx(path)
     if suffix == ".xlsx":
         return extract_xlsx(path)
     if suffix in {".png", ".jpg", ".jpeg", ".webp"}:
         return extract_image(path)
+    if suffix in {".txt", ".md", ".csv"}:
+        return _normal(path.read_text(encoding="utf-8", errors="ignore"))
     raise ValueError("Unsupported file type")
 
 
-def _strip_page_artifacts(line: str) -> str:
-    line = re.sub(r"^\[HEADING\]\s*", "", line, flags=re.I)
-    line = re.sub(r"^---\s*Page\s+\d+\s*---$", "", line, flags=re.I)
-    line = re.sub(r"\.{2,}\s*\d+\s*$", "", line)
-    line = re.sub(r"\s+\d{1,4}\s*$", "", line) if "..." in line else line
-    line = re.sub(r"\s+", " ", line).strip(" -–—|:.,;\t")
-    return line
-
-
-def _is_noise(line: str) -> bool:
-    lower = line.casefold()
-    if any(term in lower for term in NOISE_TERMS):
-        return True
-    if re.search(r"\b(?:19|20)\d{2}\b", line) and not re.match(r"^\d+(?:\.\d+)+\s+", line):
-        return True
-    if re.search(r"\b(?:ISBN|DOI)\b", line, re.I):
-        return True
-    if re.search(r"\b\d+(?:st|nd|rd|th)?\s*(?:edition|ed\.?|e)\s*$", line, re.I):
-        return True
-    if "@" in line or re.search(r"\.(?:com|org|net|edu)\b", lower):
-        return True
-    if re.fullmatch(r"[\d\W_]+", line):
-        return True
-    return False
-
-
-def _looks_like_body(line: str) -> bool:
-    lower = line.casefold()
-    words = line.split()
-    if any(hint in lower for hint in BODY_HINTS):
-        return True
-    # Long prose, especially with sentence punctuation, is not a curriculum title.
-    if len(words) > 14:
-        return True
-    if len(words) >= 8 and re.search(r"[.!?؟؛:]$", line):
-        return True
-    if len(line) > 110:
-        return True
-    # Reject equation/exercise fragments that carry many digits or operators.
-    digit_count = sum(ch.isdigit() for ch in line)
-    operator_count = sum(ch in "+=<>[]{}" for ch in line)
-    if digit_count >= 5 or operator_count >= 3:
-        return True
-    return False
-
-
-def _is_strong_topic(raw_line: str, cleaned: str) -> bool:
-    lower = cleaned.casefold()
-    tagged_heading = raw_line.lstrip().lower().startswith("[heading]")
-    heading_word = any(re.match(rf"^{re.escape(word)}\b", lower) for word in HEADING_WORDS)
-    hierarchical_number = bool(re.match(r"^\d+(?:\.\d+){1,3}\s+\S", cleaned))
-    simple_lesson_number = bool(re.match(r"^(?:lesson|الدرس)\s*\d+\b", lower))
-    toc_dots = bool(re.search(r"\.{2,}\s*\d+\s*$", raw_line))
-    return tagged_heading or heading_word or hierarchical_number or simple_lesson_number or toc_dots
-
-
-def _dedupe_key(line: str) -> str:
-    return re.sub(r"[^\w\u0600-\u06ff]+", "", line.casefold())
-
-
-def _manual_topic_lines(manual_topics: str) -> list[str]:
-    lines = re.split(r"[\n;•]+", manual_topics or "")
-    output: list[str] = []
+def candidate_topics(source_text: str, manual_topics: str = "") -> list[str]:
+    out: list[str] = []
     seen: set[str] = set()
-    for raw in lines:
-        line = _strip_page_artifacts(raw)
-        if not line or len(line) < 3 or len(line) > 140 or _is_noise(line):
-            continue
-        key = _dedupe_key(line)
-        if key and key not in seen:
-            seen.add(key)
-            output.append(line)
-    return output
 
-
-def candidate_topics(text: str, manual_topics: str = "") -> list[str]:
-    """Return clean curriculum headings, prioritising manually supplied topics.
-
-    Whole textbooks contain legal notices, examples, body paragraphs, and exercises. This
-    function deliberately accepts only heading-like source lines, while manual entries are
-    treated as authoritative.
-    """
-    manual = _manual_topic_lines(manual_topics)
-    candidates: list[str] = list(manual)
-    seen: set[str] = {_dedupe_key(x) for x in manual}
-
-    raw_lines = re.split(r"[\n•]+", text or "")
-    strong_lines: list[str] = []
-    secondary_lines: list[str] = []
-
-    for raw in raw_lines:
-        cleaned = _strip_page_artifacts(raw)
-        if not cleaned or len(cleaned) < 3 or len(cleaned) > 140:
-            continue
-        if _is_noise(cleaned) or _looks_like_body(cleaned):
-            continue
-        words = cleaned.split()
-        strong = _is_strong_topic(raw, cleaned)
-        # Secondary candidates are intentionally strict: short title-style phrases only.
-        secondary = (
-            len(words) <= 7
-            and not re.search(r"[.!?؟؛]", cleaned)
-            and sum(ch.isdigit() for ch in cleaned) <= 2
-        )
-        if strong:
-            strong_lines.append(cleaned)
-        elif secondary:
-            secondary_lines.append(cleaned)
-
-    for line in strong_lines + secondary_lines:
-        key = _dedupe_key(line)
-        if not key or key in seen:
-            continue
+    def add(raw: str) -> None:
+        line = _clean(raw)
+        key = _key(line)
+        if not key or key in seen or _bad(line):
+            return
         seen.add(key)
-        candidates.append(line)
-        if len(candidates) >= 100:
-            break
+        out.append(line)
 
-    return candidates
+    for raw in re.split(r"[\n;•]+", manual_topics or ""):
+        add(raw)
+
+    strong: list[str] = []
+    weak: list[str] = []
+    for raw_line in (source_text or "").splitlines():
+        parts = raw_line.split("|") if "|" in raw_line else [raw_line]
+        for raw in parts:
+            line = _clean(raw)
+            if _bad(line):
+                continue
+            if _strong(raw, line):
+                strong.append(line)
+            elif _short(line):
+                weak.append(line)
+
+    for item in strong:
+        add(item)
+        if len(out) >= TOPIC_LIMIT:
+            return out
+    for item in weak[:40 if len(out) < 8 else 18]:
+        add(item)
+        if len(out) >= TOPIC_LIMIT:
+            break
+    return out
