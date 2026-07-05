@@ -29,3 +29,13 @@ try:
         word_engine._professional_layout_installed = True
 except Exception:
     pass
+
+try:
+    import word_engine
+    import lesson_visual_qa
+
+    if not getattr(word_engine, "_visual_qa_installed", False):
+        lesson_visual_qa.install(word_engine)
+        word_engine._visual_qa_installed = True
+except Exception:
+    pass
