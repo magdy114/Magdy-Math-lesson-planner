@@ -22,6 +22,7 @@ from reportlab.platypus import (
 )
 
 from curriculum_models import LongPlan, MediumPlan
+from curriculum_ai import localize_grade, localize_subject, normalize_language
 
 try:
     import arabic_reshaper
@@ -162,7 +163,7 @@ def _header(title: str, rtl: bool) -> list:
     return items
 
 
-def _page_footer(canvas, doc) -> None:
+def _page_footer(canvas, doc, rtl: bool = False) -> None:
     canvas.saveState()
     canvas.setStrokeColor(colors.HexColor("#B9C8D8"))
     canvas.setLineWidth(0.4)
@@ -170,8 +171,17 @@ def _page_footer(canvas, doc) -> None:
     canvas.setFont(_FONT_REGULAR, 7)
     canvas.setFillColor(colors.HexColor("#64748B"))
     canvas.drawString(12 * mm, 5.4 * mm, "www.magdymath.com")
-    canvas.drawRightString(landscape(A4)[0] - 12 * mm, 5.4 * mm, f"Page {doc.page}")
+    label = _rtl_display(f"صفحة {doc.page}") if rtl else f"Page {doc.page}"
+    canvas.drawRightString(landscape(A4)[0] - 12 * mm, 5.4 * mm, label)
     canvas.restoreState()
+
+
+def _footer_ar(canvas, doc) -> None:
+    _page_footer(canvas, doc, True)
+
+
+def _footer_en(canvas, doc) -> None:
+    _page_footer(canvas, doc, False)
 
 
 def _table(data, col_widths, header_rows: int = 0, font_size: float = 7.0,
@@ -201,22 +211,43 @@ def _table(data, col_widths, header_rows: int = 0, font_size: float = 7.0,
     return table
 
 
+def _localized_meta(meta: dict) -> tuple[dict, bool]:
+    language = normalize_language(meta.get("language", "English"))
+    local = dict(meta)
+    local["language"] = language
+    local["subject"] = localize_subject(meta.get("subject", ""), language)
+    local["grade"] = localize_grade(meta.get("grade", ""), language)
+    return local, language == "Arabic"
+
+
 def _metadata_medium(meta: dict, plan: MediumPlan, rtl: bool) -> Table:
     align = TA_RIGHT if rtl else TA_LEFT
-    left = [
-        _p(f"Year: {meta.get('academic_year', '')}", 7.5, True, False, align),
-        _p(f"Teacher: {meta.get('teacher', '')}", 7.5, False, _has_arabic(meta.get('teacher', '')), align),
-        _p("Term: 1", 7.5, True, False, align),
-        _p("Grade:", 7.5, True, False, align),
-        _p(meta.get('grade', ''), 7.5, False, rtl and _has_arabic(meta.get('grade', '')), align),
-        _p("Title:", 7.5, True, False, align),
-        _p(plan.title, 7.5, True, rtl and _has_arabic(plan.title), align),
-        _p("Duration: 31 Aug - 11 Dec 2026 (14 weeks)", 7.5, True, False, align),
-    ]
-    right = [
-        _p("Targets:", 8, True, False, align),
-        _p(plan.targets, 7.4, False, rtl and _has_arabic(plan.targets), align, leading=9.5),
-    ]
+    if rtl:
+        left = [
+            _p(f"العام: {meta.get('academic_year', '')}", 7.5, True, True, align),
+            _p(f"المعلم: {meta.get('teacher', '')}", 7.5, False, True, align),
+            _p("الفصل الدراسي: الأول", 7.5, True, True, align),
+            _p(f"الصف: {meta.get('grade', '')}", 7.5, True, True, align),
+            _p(f"العنوان: {plan.title}", 7.5, True, True, align),
+            _p("المدة: 31 أغسطس - 11 ديسمبر 2026 (14 أسبوعاً)", 7.5, True, True, align),
+        ]
+        right = [
+            _p("الأهداف العامة:", 8, True, True, align),
+            _p(plan.targets, 7.4, False, True, align, leading=9.5),
+        ]
+    else:
+        left = [
+            _p(f"Year: {meta.get('academic_year', '')}", 7.5, True, False, align),
+            _p(f"Teacher: {meta.get('teacher', '')}", 7.5, False, False, align),
+            _p("Term: 1", 7.5, True, False, align),
+            _p(f"Grade: {meta.get('grade', '')}", 7.5, True, False, align),
+            _p(f"Title: {plan.title}", 7.5, True, False, align),
+            _p("Duration: 31 Aug - 11 Dec 2026 (14 weeks)", 7.5, True, False, align),
+        ]
+        right = [
+            _p("Targets:", 8, True, False, align),
+            _p(plan.targets, 7.4, False, False, align, leading=9.5),
+        ]
     return _table([[left, right]], [112 * mm, 161 * mm], extra_style=[
         ("BACKGROUND", (0, 0), (-1, -1), BLUE),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
@@ -226,28 +257,43 @@ def _metadata_medium(meta: dict, plan: MediumPlan, rtl: bool) -> Table:
 
 
 def _week_table(plan: MediumPlan, start: int, end: int, rtl: bool, include_break: bool = False) -> Table:
-    headers = [
-        _p("Week", 8, True, False, TA_CENTER),
-        _p("Content", 8, True, False, TA_CENTER),
-        _p("Learning Objectives", 8, True, False, TA_CENTER),
-        _p("AI Literacy Objective / Integration", 7.4, True, False, TA_CENTER),
-        _p("Resources & AI Tools", 8, True, False, TA_CENTER),
-    ]
-    dates = [
-        "31 Aug - 4 Sep", "7 - 11 Sep", "14 - 18 Sep", "21 - 25 Sep", "28 Sep - 2 Oct", "5 - 9 Oct",
-        "19 - 23 Oct", "26 - 30 Oct", "2 - 6 Nov", "9 - 13 Nov", "16 - 20 Nov", "23 - 27 Nov",
-        "30 Nov - 4 Dec", "7 - 11 Dec",
-    ]
+    if rtl:
+        headers = [
+            _p("الأسبوع", 8, True, True, TA_CENTER),
+            _p("المحتوى", 8, True, True, TA_CENTER),
+            _p("أهداف التعلم", 8, True, True, TA_CENTER),
+            _p("هدف ثقافة الذكاء الاصطناعي / التكامل", 7.2, True, True, TA_CENTER),
+            _p("المصادر وأدوات الذكاء الاصطناعي", 7.6, True, True, TA_CENTER),
+        ]
+        dates = [
+            "31 أغسطس - 4 سبتمبر", "7 - 11 سبتمبر", "14 - 18 سبتمبر", "21 - 25 سبتمبر", "28 سبتمبر - 2 أكتوبر", "5 - 9 أكتوبر",
+            "19 - 23 أكتوبر", "26 - 30 أكتوبر", "2 - 6 نوفمبر", "9 - 13 نوفمبر", "16 - 20 نوفمبر", "23 - 27 نوفمبر",
+            "30 نوفمبر - 4 ديسمبر", "7 - 11 ديسمبر",
+        ]
+    else:
+        headers = [
+            _p("Week", 8, True, False, TA_CENTER),
+            _p("Content", 8, True, False, TA_CENTER),
+            _p("Learning Objectives", 8, True, False, TA_CENTER),
+            _p("AI Literacy Objective / Integration", 7.4, True, False, TA_CENTER),
+            _p("Resources and AI Tools", 8, True, False, TA_CENTER),
+        ]
+        dates = [
+            "31 Aug - 4 Sep", "7 - 11 Sep", "14 - 18 Sep", "21 - 25 Sep", "28 Sep - 2 Oct", "5 - 9 Oct",
+            "19 - 23 Oct", "26 - 30 Oct", "2 - 6 Nov", "9 - 13 Nov", "16 - 20 Nov", "23 - 27 Nov",
+            "30 Nov - 4 Dec", "7 - 11 Dec",
+        ]
     rows: list[list] = [headers]
     for idx in range(start, end):
         if include_break and idx == 6:
             rows.append([
-                _p("MID-TERM BREAK\n12 - 18 Oct 2026", 7.1, True, False, TA_CENTER),
+                _p("إجازة منتصف الفصل\n12 - 18 أكتوبر 2026" if rtl else "MID-TERM BREAK\n12 - 18 Oct 2026", 7.1, True, rtl, TA_CENTER),
                 "", "", "", "",
             ])
         week = plan.weeks[idx]
+        week_label = f"الأسبوع {idx + 1}" if rtl else f"W{idx + 1}"
         rows.append([
-            _p(f"W{idx + 1}\n{dates[idx]}", 7.4, True, False, TA_LEFT, leading=9.2),
+            _p(f"{week_label}\n{dates[idx]}", 7.4, True, rtl, TA_RIGHT if rtl else TA_LEFT, leading=9.2),
             _p(week.content, 6.7, False, rtl, leading=8.3),
             _p(week.learning_objectives, 6.55, False, rtl, leading=8.2),
             _p(week.ai_literacy, 6.25, False, rtl, leading=7.9),
@@ -257,24 +303,21 @@ def _week_table(plan: MediumPlan, start: int, end: int, rtl: bool, include_break
     if include_break:
         break_row = 1 + (6 - start)
         if 1 <= break_row < len(rows):
-            extra.extend([
-                ("BACKGROUND", (0, break_row), (-1, break_row), PALE_YELLOW),
-                ("SPAN", (0, break_row), (0, break_row)),
-            ])
+            extra.extend([("BACKGROUND", (0, break_row), (-1, break_row), PALE_YELLOW)])
     return _table(rows, [28 * mm, 48 * mm, 76 * mm, 57 * mm, 64 * mm], 1, 6.4, 2.6, extra)
 
 
 def _label_value(label: str, value: str, rtl: bool, size: float = 7.0) -> list:
     align = TA_RIGHT if rtl else TA_LEFT
     return [
-        _p(label, size, True, False, align),
+        _p(label, size, True, rtl, align),
         _p(value, size - 0.2, False, rtl and _has_arabic(value), align, leading=(size - 0.2) * 1.35),
     ]
 
 
 def build_medium_pdf(meta: dict, plan: MediumPlan, output_path: Path) -> Path:
     _register_fonts()
-    rtl = meta.get("language") == "Arabic"
+    meta, rtl = _localized_meta(meta)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     doc = SimpleDocTemplate(
         str(output_path), pagesize=landscape(A4),
@@ -282,53 +325,57 @@ def build_medium_pdf(meta: dict, plan: MediumPlan, output_path: Path) -> Path:
         title=plan.title, author=meta.get("teacher", ""),
     )
     story: list = []
-    story.extend(_header("Medium Term Plan", False))
+    story.extend(_header("الخطة متوسطة المدى" if rtl else "Medium Term Plan", rtl))
     story.append(_metadata_medium(meta, plan, rtl))
     story.append(Spacer(1, 4 * mm))
     story.append(_week_table(plan, 0, 7, rtl, include_break=True))
 
     story.append(PageBreak())
-    story.extend(_header("Medium Term Plan - Weeks 8 to 14", False))
+    story.extend(_header("الخطة متوسطة المدى - الأسابيع 8 إلى 14" if rtl else "Medium Term Plan - Weeks 8 to 14", rtl))
     story.append(_week_table(plan, 7, 14, rtl, include_break=False))
     story.append(Spacer(1, 3 * mm))
+    summary_labels = ("فرص التقويم", "مهارات القرن الحادي والعشرين", "المفردات والكلمات المفتاحية") if rtl else ("Assessment Opportunities", "21st Century Skills", "Vocabulary and Key Words")
     summary = [[
-        _label_value("Assessment Opportunities", plan.assessment_opportunities, rtl, 7.1),
-        _label_value("21st Century Skills", plan.century_skills, rtl, 7.1),
-        _label_value("Vocabulary / Key Words", plan.vocabulary, rtl, 7.1),
+        _label_value(summary_labels[0], plan.assessment_opportunities, rtl, 7.1),
+        _label_value(summary_labels[1], plan.century_skills, rtl, 7.1),
+        _label_value(summary_labels[2], plan.vocabulary, rtl, 7.1),
     ]]
     story.append(_table(summary, [91 * mm, 91 * mm, 91 * mm], font_size=6.8, cell_padding=4))
     story.append(Spacer(1, 2.5 * mm))
+    detail_labels = (
+        "التوجه العام للمدرسة والكفاءات والقيم", "المواطنة العالمية", "الروابط الأفقية بين المواد", "علامة الهوية الوطنية"
+    ) if rtl else (
+        "EPS Guiding Statement, Competences, HQL and Values", "Global Citizenship", "Cross-curricular and Horizontal Articulation", "National Identity Mark"
+    )
     details = [
         [
-            _label_value("EPS Guiding Statement (Competences / HQL / Values)", plan.eps_guiding_statement, rtl, 7.0),
-            _label_value("Global Citizenship", plan.global_citizenship, rtl, 7.0),
+            _label_value(detail_labels[0], plan.eps_guiding_statement, rtl, 7.0),
+            _label_value(detail_labels[1], plan.global_citizenship, rtl, 7.0),
         ],
         [
-            _label_value("Cross-curricular / Horizontal Articulation", plan.cross_curricular, rtl, 7.0),
-            _label_value("National Identity Mark", plan.national_identity, rtl, 7.0),
+            _label_value(detail_labels[2], plan.cross_curricular, rtl, 7.0),
+            _label_value(detail_labels[3], plan.national_identity, rtl, 7.0),
         ],
     ]
     story.append(_table(details, [136.5 * mm, 136.5 * mm], font_size=6.7, cell_padding=4,
                         extra_style=[("BACKGROUND", (0, 0), (-1, -1), PALE_BLUE)]))
 
     story.append(PageBreak())
-    story.extend(_header("AI Integration, Safeguarding & Compliance", False))
-    ai_rows = [
-        [_label_value("1. AI Integration Approach", plan.ai_integration_approach, rtl, 8.0)],
-        [_label_value("2. Guardrails & Prompt Controls", plan.guardrails_prompt_controls, rtl, 8.0)],
-        [_label_value("3. Cognitive Integrity Strategy", plan.cognitive_integrity_strategy, rtl, 8.0)],
-        [_label_value("4. AI Safeguarding & Responsible Use", plan.ai_safeguarding, rtl, 8.0)],
-    ]
+    story.extend(_header("دمج الذكاء الاصطناعي والسلامة والامتثال" if rtl else "AI Integration, Safeguarding and Compliance", rtl))
+    ai_labels = (
+        "1. نهج دمج الذكاء الاصطناعي", "2. الضوابط والتحكم في الأوامر",
+        "3. استراتيجية النزاهة المعرفية", "4. السلامة والاستخدام المسؤول"
+    ) if rtl else (
+        "1. AI Integration Approach", "2. Guardrails and Prompt Controls",
+        "3. Cognitive Integrity Strategy", "4. AI Safeguarding and Responsible Use"
+    )
+    ai_values = [plan.ai_integration_approach, plan.guardrails_prompt_controls, plan.cognitive_integrity_strategy, plan.ai_safeguarding]
+    ai_rows = [[_label_value(label, value, rtl, 8.0)] for label, value in zip(ai_labels, ai_values)]
     story.append(_table(ai_rows, [273 * mm], font_size=7.5, cell_padding=5,
                         extra_style=[("BACKGROUND", (0, 0), (-1, -1), PALE_BLUE)]))
     story.append(Spacer(1, 4 * mm))
-    comp_header = [
-        _p("Area", 7.5, True, False, TA_CENTER),
-        _p("Milestone / Target", 7.5, True, False, TA_CENTER),
-        _p("Responsible Person", 7.5, True, False, TA_CENTER),
-        _p("Target Date", 7.5, True, False, TA_CENTER),
-        _p("Status", 7.5, True, False, TA_CENTER),
-    ]
+    comp_labels = ("المجال", "الإنجاز / الهدف", "المسؤول", "التاريخ المستهدف", "الحالة") if rtl else ("Area", "Milestone / Target", "Responsible Person", "Target Date", "Status")
+    comp_header = [_p(label, 7.5, True, rtl, TA_CENTER) for label in comp_labels]
     comp_rows = [comp_header]
     for item in plan.compliance[:4]:
         comp_rows.append([
@@ -338,67 +385,71 @@ def build_medium_pdf(meta: dict, plan: MediumPlan, output_path: Path) -> Path:
         ])
     story.append(_table(comp_rows, [48 * mm, 87 * mm, 52 * mm, 43 * mm, 43 * mm], 1, 7.0, 4))
 
-    doc.build(story, onFirstPage=_page_footer, onLaterPages=_page_footer)
+    doc.build(story, onFirstPage=_footer_ar if rtl else _footer_en, onLaterPages=_footer_ar if rtl else _footer_en)
     return output_path
 
 
 def _metadata_long(meta: dict, rtl: bool) -> Table:
-    return _table([[ 
-        _label_value("Subject", meta.get("subject", ""), rtl, 8),
-        _label_value("Teacher", meta.get("teacher", ""), rtl, 8),
-        _label_value("Grade Group", meta.get("grade", ""), rtl, 8),
-        _label_value("Academic Year", meta.get("academic_year", ""), rtl, 8),
+    labels = ("المادة", "المعلم", "الصف", "العام الأكاديمي") if rtl else ("Subject", "Teacher", "Grade Group", "Academic Year")
+    values = (meta.get("subject", ""), meta.get("teacher", ""), meta.get("grade", ""), meta.get("academic_year", ""))
+    return _table([[
+        _label_value(labels[0], values[0], rtl, 8),
+        _label_value(labels[1], values[1], rtl, 8),
+        _label_value(labels[2], values[2], rtl, 8),
+        _label_value(labels[3], values[3], rtl, 8),
     ]], [68.25 * mm] * 4, font_size=7.5, cell_padding=4,
         extra_style=[("BACKGROUND", (0, 0), (-1, -1), PALE_BLUE)])
 
 
 def build_long_pdf(meta: dict, plan: LongPlan, output_path: Path) -> Path:
     _register_fonts()
-    rtl = meta.get("language") == "Arabic"
+    meta, rtl = _localized_meta(meta)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     doc = SimpleDocTemplate(
         str(output_path), pagesize=landscape(A4),
         rightMargin=12 * mm, leftMargin=12 * mm, topMargin=8 * mm, bottomMargin=12 * mm,
-        title="Long Term Plan", author=meta.get("teacher", ""),
+        title="الخطة طويلة المدى" if rtl else "Long Term Plan", author=meta.get("teacher", ""),
     )
     story: list = []
-    story.extend(_header("Long Term Plan", False))
+    story.extend(_header("الخطة طويلة المدى" if rtl else "Long Term Plan", rtl))
     story.append(_metadata_long(meta, rtl))
     story.append(Spacer(1, 4 * mm))
 
     term_headers = [
-        ("Term 1", "31 Aug 2026 - 11 Dec 2026"),
-        ("Term 2", "4 Jan 2027 - 2 Apr 2027"),
-        ("Term 3", "12 Apr 2027 - 2 Jul 2027"),
+        (("الفصل الدراسي الأول", "31 أغسطس 2026 - 11 ديسمبر 2026") if rtl else ("Term 1", "31 Aug 2026 - 11 Dec 2026")),
+        (("الفصل الدراسي الثاني", "4 يناير 2027 - 2 أبريل 2027") if rtl else ("Term 2", "4 Jan 2027 - 2 Apr 2027")),
+        (("الفصل الدراسي الثالث", "12 أبريل 2027 - 2 يوليو 2027") if rtl else ("Term 3", "12 Apr 2027 - 2 Jul 2027")),
     ]
     term_row = []
     for title, dates in term_headers:
-        term_row.append([_p(title, 9, True, False, TA_CENTER), _p(dates, 7, True, False, TA_CENTER)])
+        term_row.append([_p(title, 9, True, rtl, TA_CENTER), _p(dates, 7, True, rtl, TA_CENTER)])
     story.append(_table([term_row], [91 * mm] * 3, font_size=7, cell_padding=4,
                         extra_style=[("BACKGROUND", (0, 0), (-1, -1), BLUE)]))
     story.append(Spacer(1, 2 * mm))
 
-    half_titles = [
-        "Autumn 1 (HT1)\n31 Aug - 9 Oct", "Autumn 2 (HT2)\n19 Oct - 11 Dec",
-        "Spring 1 (HT3)\n4 Jan - 19 Feb", "Spring 2 (HT4)\n22 Feb - 2 Apr",
-        "Summer 1 (HT5)\n12 Apr - 21 May", "Summer 2 (HT6)\n24 May - 2 Jul",
-    ]
-    headers = [_p(x, 7.1, True, False, TA_CENTER, leading=9.0) for x in half_titles]
+    if rtl:
+        half_titles = [
+            "الفترة الأولى - الفصل الأول\n31 أغسطس - 9 أكتوبر", "الفترة الثانية - الفصل الأول\n19 أكتوبر - 11 ديسمبر",
+            "الفترة الأولى - الفصل الثاني\n4 يناير - 19 فبراير", "الفترة الثانية - الفصل الثاني\n22 فبراير - 2 أبريل",
+            "الفترة الأولى - الفصل الثالث\n12 أبريل - 21 مايو", "الفترة الثانية - الفصل الثالث\n24 مايو - 2 يوليو",
+        ]
+    else:
+        half_titles = [
+            "Autumn 1\n31 Aug - 9 Oct", "Autumn 2\n19 Oct - 11 Dec",
+            "Spring 1\n4 Jan - 19 Feb", "Spring 2\n22 Feb - 2 Apr",
+            "Summer 1\n12 Apr - 21 May", "Summer 2\n24 May - 2 Jul",
+        ]
+    headers = [_p(x, 7.1, True, rtl, TA_CENTER, leading=9.0) for x in half_titles]
     content = [_p(half.content, 6.35, False, rtl, leading=8.0) for half in plan.half_terms[:6]]
     assessment = [_p(half.summative_assessment, 6.25, False, rtl, leading=7.8) for half in plan.half_terms[:6]]
     curriculum = [headers, content, assessment]
     story.append(_table(curriculum, [45.5 * mm] * 6, 1, 6.4, 3.2,
-                        extra_style=[
-                            ("BACKGROUND", (0, 2), (-1, 2), PALE_YELLOW),
-                        ]))
+                        extra_style=[("BACKGROUND", (0, 2), (-1, 2), PALE_YELLOW)]))
     story.append(Spacer(1, 4 * mm))
-    story.append(_p("AI Implementation & Compliance Tracking (School Level)", 9.5, True, False, TA_CENTER, NAVY))
+    story.append(_p("تتبع تطبيق الذكاء الاصطناعي والامتثال على مستوى المدرسة" if rtl else "AI Implementation and Compliance Tracking at School Level", 9.5, True, rtl, TA_CENTER, NAVY))
     story.append(Spacer(1, 2 * mm))
-    comp_header = [
-        _p("Area", 7.3, True, False, TA_CENTER), _p("Milestone / Target", 7.3, True, False, TA_CENTER),
-        _p("Responsible Person", 7.3, True, False, TA_CENTER), _p("Target Date", 7.3, True, False, TA_CENTER),
-        _p("Status", 7.3, True, False, TA_CENTER),
-    ]
+    comp_labels = ("المجال", "الإنجاز / الهدف", "المسؤول", "التاريخ المستهدف", "الحالة") if rtl else ("Area", "Milestone / Target", "Responsible Person", "Target Date", "Status")
+    comp_header = [_p(label, 7.3, True, rtl, TA_CENTER) for label in comp_labels]
     comp_rows = [comp_header]
     for item in plan.compliance[:4]:
         comp_rows.append([
@@ -408,5 +459,5 @@ def build_long_pdf(meta: dict, plan: LongPlan, output_path: Path) -> Path:
         ])
     story.append(_table(comp_rows, [48 * mm, 87 * mm, 52 * mm, 43 * mm, 43 * mm], 1, 6.8, 3.8))
 
-    doc.build(story, onFirstPage=_page_footer, onLaterPages=_page_footer)
+    doc.build(story, onFirstPage=_footer_ar if rtl else _footer_en, onLaterPages=_footer_ar if rtl else _footer_en)
     return output_path

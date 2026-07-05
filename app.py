@@ -887,7 +887,8 @@ def curriculum_planner():
 def curriculum_generate():
     started_at = time.monotonic()
     plan_type = request.form.get("plan_type", "medium")
-    language = request.form.get("language", "English")
+    raw_language = request.form.get("language", "Arabic")
+    language = "Arabic" if str(raw_language).strip().casefold() in {"arabic", "ar", "العربية", "عربي"} else "English"
     meta = {
         "teacher": request.form.get("teacher", "").strip(),
         "subject": request.form.get("subject", "").strip(),
