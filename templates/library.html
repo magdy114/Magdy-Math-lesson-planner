@@ -13,7 +13,7 @@
         <img src="{{ url_for('static', filename='school_logo.jpeg') }}" onerror="this.style.display='none'" alt="school logo">
         <div><h1>مكتبة الدروس</h1><p>الدروس التي تم توليدها وحفظها تلقائيًا</p></div>
       </div>
-      <div class="top-actions"><a class="nav-link" href="{{ url_for('index') }}">العودة للتطبيق</a></div>
+      <div class="top-actions"><a class="nav-link" href="{{ url_for('dashboard') }}">الرئيسية</a><a class="nav-link" href="{{ url_for('index') }}">تحضير درس جديد</a><a class="nav-link" href="{{ url_for('curriculum_planner') }}">خطط MTP / LTP</a></div>
     </header>
     <main class="glass library-card">
       {% if not items %}

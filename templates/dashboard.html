@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#061226">
+  <title>Magdy Planning Studio</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='hub.css') }}?v=20260705">
+</head>
+<body>
+  <div class="orb orb-a"></div><div class="orb orb-b"></div><div class="grid-bg"></div>
+  <main class="hub-shell">
+    <header class="hub-top glass">
+      <div class="hub-brand">
+        <div class="logo-box"><img src="{{ url_for('static', filename='school_logo.jpeg') }}" alt="Emirates Private School"></div>
+        <div>
+          <span class="kicker">EPS · AI PLANNING SUITE</span>
+          <h1>Magdy Planning Studio</h1>
+          <p data-ar="منصة واحدة لتحضير الدروس والخطط متوسطة وطويلة المدى" data-en="One platform for lesson, medium-term, and long-term planning">منصة واحدة لتحضير الدروس والخطط متوسطة وطويلة المدى</p>
+        </div>
+      </div>
+      <div class="hub-actions">
+        <span class="status {{ 'online' if status and status.ai_enabled else 'offline' }}">{{ 'AI Expert Connected' if status and status.ai_enabled else 'Smart Offline Mode' }}</span>
+        <button id="langToggle" class="ghost-btn" type="button">English</button>
+      </div>
+    </header>
+
+    <section class="intro glass">
+      <div>
+        <span class="eyebrow" data-ar="اختر نوع العمل" data-en="Choose your workflow">اختر نوع العمل</span>
+        <h2 data-ar="كل أدوات التخطيط في تطبيق واحد" data-en="All planning tools in one application">كل أدوات التخطيط في تطبيق واحد</h2>
+        <p data-ar="استخدم نفس رابط Render لإنشاء تحضير يومي، أو توزيع 14 أسبوعًا، أو خريطة منهج للعام الكامل." data-en="Use the same Render link to create daily lesson plans, a 14-week medium-term plan, or a full-year curriculum map.">استخدم نفس رابط Render لإنشاء تحضير يومي، أو توزيع 14 أسبوعًا، أو خريطة منهج للعام الكامل.</p>
+      </div>
+      <div class="signature"><strong>www.magdymath.com</strong><span>Prepared by Mr. Magdy ElSayed</span></div>
+    </section>
+
+    <section class="workflow-grid">
+      <a class="workflow-card lesson" href="{{ url_for('index') }}">
+        <div class="card-icon">LP</div>
+        <span class="card-no">01</span>
+        <h3 data-ar="تحضير الدروس" data-en="Lesson Planner">تحضير الدروس</h3>
+        <p data-ar="حتى 5 دروس، ملفات وصور، معاينة ذكية، ثم Word رسمي لكل درس." data-en="Up to five lessons, file and image input, smart preview, and official Word export.">حتى 5 دروس، ملفات وصور، معاينة ذكية، ثم Word رسمي لكل درس.</p>
+        <div class="feature-row"><span>AI</span><span>Word</span><span>RTL / LTR</span></div>
+        <b data-ar="فتح محرك التحضير ←" data-en="Open Lesson Planner →">فتح محرك التحضير ←</b>
+      </a>
+
+      <a class="workflow-card medium" href="{{ url_for('curriculum_planner', type='medium') }}">
+        <div class="card-icon">MTP</div>
+        <span class="card-no">02</span>
+        <h3 data-ar="الخطة متوسطة المدى" data-en="Medium Term Plan">الخطة متوسطة المدى</h3>
+        <p data-ar="ارفع الكتاب أو الفهرس لتوزيع الموضوعات على 14 أسبوعًا مع الأهداف وAI Literacy والموارد." data-en="Upload a book or contents page to distribute topics across 14 weeks with objectives, AI literacy, and resources.">ارفع الكتاب أو الفهرس لتوزيع الموضوعات على 14 أسبوعًا مع الأهداف وAI Literacy والموارد.</p>
+        <div class="feature-row"><span>14 Weeks</span><span>Review</span><span>Word / PDF</span></div>
+        <b data-ar="إنشاء MTP ←" data-en="Create MTP →">إنشاء MTP ←</b>
+      </a>
+
+      <a class="workflow-card long" href="{{ url_for('curriculum_planner', type='long') }}">
+        <div class="card-icon">LTP</div>
+        <span class="card-no">03</span>
+        <h3 data-ar="الخطة طويلة المدى" data-en="Long Term Plan">الخطة طويلة المدى</h3>
+        <p data-ar="توزيع موضوعات العام تلقائيًا على HT1 إلى HT6 مع التقويمات الختامية وتتبع تكامل الذكاء الاصطناعي." data-en="Automatically map the academic year across HT1–HT6 with summative assessments and AI compliance tracking.">توزيع موضوعات العام تلقائيًا على HT1 إلى HT6 مع التقويمات الختامية وتتبع تكامل الذكاء الاصطناعي.</p>
+        <div class="feature-row"><span>HT1–HT6</span><span>Full Year</span><span>Editable</span></div>
+        <b data-ar="إنشاء LTP ←" data-en="Create LTP →">إنشاء LTP ←</b>
+      </a>
+    </section>
+
+    <section class="quick-links glass">
+      <div><h3 data-ar="وصول سريع" data-en="Quick Access">وصول سريع</h3><p data-ar="الملفات السابقة وحالة النظام" data-en="Previous files and system status">الملفات السابقة وحالة النظام</p></div>
+      <a href="{{ url_for('library') }}" data-ar="مكتبة تحضير الدروس" data-en="Lesson Plan Library">مكتبة تحضير الدروس</a>
+      <a href="{{ url_for('api_status') }}" target="_blank" data-ar="فحص حالة التطبيق" data-en="Application Status">فحص حالة التطبيق</a>
+    </section>
+  </main>
+<script>
+  let lang='ar'; const toggle=document.getElementById('langToggle');
+  function setLang(next){lang=next;document.documentElement.lang=next;document.documentElement.dir=next==='ar'?'rtl':'ltr';document.querySelectorAll('[data-ar]').forEach(el=>el.textContent=el.dataset[next]);toggle.textContent=next==='ar'?'English':'العربية';localStorage.setItem('planning_ui_lang',next)}
+  toggle.addEventListener('click',()=>setLang(lang==='ar'?'en':'ar'));
+  setLang(localStorage.getItem('planning_ui_lang')||'ar');
+</script>
+</body>
+</html>

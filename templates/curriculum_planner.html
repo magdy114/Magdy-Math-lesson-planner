@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0a3568">
+  <title>Magdy Curriculum Planner</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='curriculum.css') }}?v=20260705">
+</head>
+<body>
+  <main class="shell">
+    <nav class="merged-nav">
+      <a href="{{ url_for('dashboard') }}" data-ar="الرئيسية" data-en="Home">الرئيسية</a>
+      <a href="{{ url_for('index') }}" data-ar="تحضير الدروس" data-en="Lesson Planner">تحضير الدروس</a>
+      <a href="{{ url_for('library') }}" data-ar="مكتبة الدروس" data-en="Lesson Library">مكتبة الدروس</a>
+      <span class="ai-mini {{ 'ok' if status and status.ai_enabled else 'warn' }}">{{ 'AI Expert Connected' if status and status.ai_enabled else 'Smart Offline Mode' }}</span>
+      <button type="button" id="langToggle">English</button>
+    </nav>
+
+    <section class="hero">
+      <div class="hero-copy">
+        <span class="eyebrow">AI CURRICULUM PLANNER</span>
+        <h1><span data-ar="مولّد الخطط الدراسية" data-en="Curriculum Plan Generator">مولّد الخطط الدراسية</span><br><span>Medium & Long Term Plans</span></h1>
+        <p data-ar="ارفع الكتاب أو الفهرس، أدخل بيانات المعلم، ثم راجع الخطة وعدّلها قبل تصديرها داخل القالب الرسمي." data-en="Upload the textbook or contents page, enter the teacher details, then review and edit the plan before exporting it in the official template.">ارفع الكتاب أو الفهرس، أدخل بيانات المعلم، ثم راجع الخطة وعدّلها قبل تصديرها داخل القالب الرسمي.</p>
+        <div class="brand-line"><b>www.magdymath.com</b><span>Prepared by Mr. Magdy ElSayed</span></div>
+      </div>
+      <div class="logo-card"><img src="{{ url_for('static', filename='eps_logo.png') }}" alt="Emirates Private School"></div>
+    </section>
+
+    {% if error %}<div class="alert error">{{ error }}</div>{% endif %}
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}<div class="alert {{ category }}">{{ message }}</div>{% endfor %}
+    {% endwith %}
+
+    <form id="curriculumForm" class="planner-card" method="post" action="{{ url_for('curriculum_generate') }}" enctype="multipart/form-data">
+      <div class="section-title"><span>01</span><div><h2 data-ar="نوع الخطة" data-en="Plan Type">نوع الخطة</h2><p data-ar="اختر القالب المطلوب" data-en="Choose the required official template">اختر القالب المطلوب</p></div></div>
+      <div class="plan-options">
+        <label class="plan-choice {{ 'active' if initial_plan_type == 'medium' else '' }}">
+          <input type="radio" name="plan_type" value="medium" {{ 'checked' if initial_plan_type == 'medium' else '' }}>
+          <div class="choice-icon">M</div><div><strong>Medium Term Plan</strong><small data-ar="خطة أسبوعية لـ 14 أسبوعًا - Term 1" data-en="A 14-week plan for Term 1">خطة أسبوعية لـ 14 أسبوعًا - Term 1</small></div>
+        </label>
+        <label class="plan-choice {{ 'active' if initial_plan_type == 'long' else '' }}">
+          <input type="radio" name="plan_type" value="long" {{ 'checked' if initial_plan_type == 'long' else '' }}>
+          <div class="choice-icon">L</div><div><strong>Long Term Plan</strong><small data-ar="توزيع العام على 6 Half Terms" data-en="Full-year mapping across six half terms">توزيع العام على 6 Half Terms</small></div>
+        </label>
+      </div>
+
+      <div class="section-title"><span>02</span><div><h2 data-ar="بيانات الخطة" data-en="Plan Details">بيانات الخطة</h2><p data-ar="ستظهر داخل ملف Word النهائي" data-en="These details appear in the final Word file">ستظهر داخل ملف Word النهائي</p></div></div>
+      <div class="grid four">
+        <label><b data-ar="اسم المعلم" data-en="Teacher Name">اسم المعلم</b><input name="teacher" required placeholder="Magdy Elsayed"></label>
+        <label><b data-ar="المادة" data-en="Subject">المادة</b><input name="subject" required placeholder="Mathematics"></label>
+        <label><b data-ar="الصف / Grade Group" data-en="Grade Group">الصف / Grade Group</b><input name="grade" required placeholder="Grade 12 Advanced"></label>
+        <label><b data-ar="العام الأكاديمي" data-en="Academic Year">العام الأكاديمي</b><input name="academic_year" value="2026-2027" required></label>
+      </div>
+      <div class="grid two">
+        <label><b data-ar="لغة الخطة النهائية" data-en="Final Plan Language">لغة الخطة النهائية</b><select name="language"><option value="English">English</option><option value="Arabic">Arabic</option></select></label>
+        <label><b data-ar="تعليمات إضافية" data-en="Additional Instructions">تعليمات إضافية</b><input name="instructions" data-ar-placeholder="مثال: أضف مراجعة قبل الاختبار ومشروع STEM" data-en-placeholder="Example: include revision before the exam and a STEM project" placeholder="مثال: أضف مراجعة قبل الاختبار ومشروع STEM"></label>
+      </div>
+
+      <div class="section-title"><span>03</span><div><h2 data-ar="المحتوى الدراسي" data-en="Curriculum Content">المحتوى الدراسي</h2><p data-ar="يمكن الجمع بين رفع ملف وكتابة الموضوعات يدويًا" data-en="You may upload a file and also paste topics manually">يمكن الجمع بين رفع ملف وكتابة الموضوعات يدويًا</p></div></div>
+      <div class="upload-grid">
+        <label class="dropzone">
+          <input type="file" name="curriculum_file" accept=".pdf,.docx,.txt,.md,.csv,.pptx,.xlsx,.png,.jpg,.jpeg,.webp">
+          <div class="upload-icon">↑</div>
+          <strong data-ar="اسحب الكتاب أو الفهرس هنا" data-en="Upload the textbook or contents page">اسحب الكتاب أو الفهرس هنا</strong>
+          <span data-ar="PDF, Word, PowerPoint, Excel, Image - حتى 35 MB" data-en="PDF, Word, PowerPoint, Excel, or Image — up to 35 MB">PDF, Word, PowerPoint, Excel, Image - حتى 35 MB</span>
+          <em id="fileName" data-ar="لم يتم اختيار ملف" data-en="No file selected">لم يتم اختيار ملف</em>
+        </label>
+        <label class="topics-box"><b data-ar="أو الصق الموضوعات / الفهرس" data-en="Or paste topics / table of contents">أو الصق الموضوعات / الفهرس</b><textarea name="manual_topics" rows="11" data-ar-placeholder="الوحدة الأولى: النهايات والاتصال&#10;1.1 تقدير النهايات&#10;1.2 إيجاد النهايات جبريًا&#10;الوحدة الثانية: التفاضل" data-en-placeholder="Unit 1: Limits and Continuity&#10;1.1 Estimating Limits&#10;1.2 Evaluating Limits Algebraically&#10;Unit 2: Derivatives" placeholder="Unit 1: Limits and Continuity&#10;1.1 Estimating Limits&#10;1.2 Evaluating Limits Algebraically&#10;Unit 2: Derivatives"></textarea></label>
+      </div>
+
+      <button class="generate-btn" type="submit"><span data-ar="إنشاء الخطة الذكية" data-en="Generate Smart Plan">إنشاء الخطة الذكية</span><i>←</i></button>
+      <p class="privacy-note" data-ar="لا تُدخل بيانات شخصية للطلاب. الملفات المؤقتة تُحذف تلقائيًا بعد 24 ساعة." data-en="Do not enter student personal data. Temporary files are deleted automatically after 24 hours.">لا تُدخل بيانات شخصية للطلاب. الملفات المؤقتة تُحذف تلقائيًا بعد 24 ساعة.</p>
+    </form>
+  </main>
+  <div id="loadingLayer" class="planner-loading hidden"><div class="planner-spinner"></div><h3 data-ar="جاري تحليل المحتوى وإنشاء الخطة..." data-en="Analysing content and building the plan...">جاري تحليل المحتوى وإنشاء الخطة...</h3><p data-ar="قد يستغرق ذلك من عدة ثوانٍ إلى دقيقة حسب حجم الملف." data-en="This may take several seconds depending on the file size.">قد يستغرق ذلك من عدة ثوانٍ إلى دقيقة حسب حجم الملف.</p></div>
+<script>
+  let uiLang=localStorage.getItem('planning_ui_lang')||'ar';
+  const langToggle=document.getElementById('langToggle');
+  function setUiLang(next){uiLang=next;document.documentElement.lang=next;document.documentElement.dir=next==='ar'?'rtl':'ltr';document.querySelectorAll('[data-ar]').forEach(el=>{el.textContent=el.dataset[next]});document.querySelectorAll('[data-ar-placeholder]').forEach(el=>{el.placeholder=el.dataset[next+'Placeholder']});langToggle.textContent=next==='ar'?'English':'العربية';localStorage.setItem('planning_ui_lang',next)}
+  langToggle.addEventListener('click',()=>setUiLang(uiLang==='ar'?'en':'ar'));
+  document.querySelectorAll('.plan-choice input').forEach(input=>input.addEventListener('change',()=>{document.querySelectorAll('.plan-choice').forEach(x=>x.classList.remove('active'));input.closest('.plan-choice').classList.add('active')}));
+  const fileInput=document.querySelector('input[type=file]');
+  fileInput.addEventListener('change',()=>document.getElementById('fileName').textContent=fileInput.files[0]?.name||(uiLang==='ar'?'لم يتم اختيار ملف':'No file selected'));
+  document.getElementById('curriculumForm').addEventListener('submit',()=>document.getElementById('loadingLayer').classList.remove('hidden'));
+  setUiLang(uiLang);
+</script>
+</body>
+</html>

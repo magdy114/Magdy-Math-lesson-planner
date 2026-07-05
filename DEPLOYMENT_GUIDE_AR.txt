@@ -1,29 +1,34 @@
-دليل رفع Magdy Lesson Planner على سيرفر ليستخدمه كل المعلمين
-===========================================================
+رفع النسخة المدمجة على GitHub وRender
+====================================
 
-الهدف:
-تضع API Key مرة واحدة على السيرفر، ثم ترسل رابط التطبيق للمعلمين.
-لا يوجد كود دخول في هذه النسخة.
+أولًا: GitHub
+1) افتح مستودع Magdy-Math-lesson-planner.
+2) ارفع محتويات هذا المجلد إلى جذر المستودع، وليس المجلد الخارجي نفسه.
+3) وافق على استبدال الملفات المعدلة مثل app.py وrequirements.txt وtemplates وstatic.
+4) تأكد من وجود الملفات الجديدة:
+   curriculum_ai.py
+   curriculum_models.py
+   curriculum_extractors.py
+   curriculum_document_builder.py
+   word_templates/medium_term_template.docx
+   word_templates/long_term_template.docx
+   templates/dashboard.html
+   templates/curriculum_planner.html
+   templates/curriculum_preview.html
+   static/hub.css
+   static/curriculum.css
 
-الخطوات العامة:
-1) ارفع مجلد التطبيق على خدمة تدعم Python Flask.
-2) ثبت المتطلبات من requirements.txt.
-3) أضف متغيرات البيئة Environment Variables:
-   OPENAI_API_KEY=ضع المفتاح هنا
-   OPENAI_MODEL=gpt-5.5
-   DAILY_TOTAL_LIMIT=300
-   DAILY_USER_LIMIT=25
-4) شغل الأمر:
-   python app.py
+ثانيًا: Render
+1) افتح الخدمة الحالية Magdy-Math-lesson-planner.
+2) Settings > Build & Deploy.
+3) Build Command: pip install -r requirements.txt
+4) Start Command: gunicorn expert_entry:app --bind 0.0.0.0:$PORT --timeout 180
+5) Environment أضف أو راجع:
+   OPENAI_API_KEY
+   OPENAI_MODEL = gpt-5.5
+   FLASK_SECRET = قيمة سرية طويلة
+   DAILY_TOTAL_LIMIT = 300
+   DAILY_USER_LIMIT = 25
+6) Manual Deploy > Deploy latest commit.
 
-للاستخدام المحلي داخل المدرسة:
-- شغل RUN_SERVER.bat على جهاز واحد.
-- غيّر HOST في .env إلى 0.0.0.0 إذا أردت فتحه على الشبكة الداخلية.
-- أرسل للمعلمين رابط الجهاز على الشبكة.
-
-ملاحظات مهمة:
-- المفتاح لا يظهر للمعلمين لأنه محفوظ على السيرفر فقط.
-- لا ترسل ملف .env الحقيقي لأي معلم.
-- لو توقف الاتصال بالذكاء الاصطناعي، التطبيق لن يغلق وسيستخدم الوضع الداخلي Smart Offline Mode.
-- تاريخ الحصة اختياري، وإذا تركه المعلم فارغًا سيستمر التوليد بدون خطأ.
-- راجع logs/error_log.txt لأي خطأ.
+بعد نجاح النشر سيفتح الرابط الحالي على لوحة رئيسية تضم تحضير الدروس وMTP وLTP.

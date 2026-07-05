@@ -17,6 +17,8 @@
       </div>
       <div class="top-actions">
         <span class="status-pill {{ 'ok' if status and status.ai_enabled else 'warn' }}" id="aiStatus"><span class="status-dot"></span>{{ 'AI Expert Connected' if status and status.ai_enabled else 'Smart Offline Mode' }}</span>
+        <a class="btn-3d nav-link" href="{{ url_for('dashboard') }}" data-ar="الرئيسية" data-en="Home">الرئيسية</a>
+        <a class="btn-3d nav-link" href="{{ url_for('curriculum_planner') }}" data-ar="الخطط MTP / LTP" data-en="MTP / LTP Plans">الخطط MTP / LTP</a>
         <a class="btn-3d nav-link" href="{{ url_for('library') }}" data-ar="مكتبة الدروس" data-en="Lesson Library">مكتبة الدروس</a>
         <button class="btn-3d lang-toggle" type="button" id="langToggle">English</button>
       </div>

@@ -6,7 +6,9 @@ import json
 import logging
 import os
 import re
+import shutil
 import time
+import uuid
 import zipfile
 from dataclasses import dataclass, asdict
 from datetime import datetime
@@ -14,7 +16,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 from dotenv import load_dotenv
-from flask import Flask, jsonify, redirect, render_template, request, send_file, url_for
+from flask import Flask, flash, jsonify, redirect, render_template, request, send_file, url_for
 from werkzeug.utils import secure_filename
 from docx import Document
 from docx.shared import Pt
@@ -38,6 +40,11 @@ try:
 except Exception:  # pragma: no cover
     Presentation = None
 
+from curriculum_document_builder import build_long, build_medium, convert_to_pdf
+from curriculum_extractors import candidate_topics, extract_text as extract_curriculum_text
+from curriculum_models import LongPlan, MediumPlan
+from curriculum_ai import generate_long, generate_medium
+
 BASE_DIR = Path(__file__).resolve().parent
 TEMPLATE_PATH = BASE_DIR / "assets" / "Lesson_Plan_Template_AY2026_2027.docx"
 LIBRARY_DIR = BASE_DIR / "generated_lessons"
@@ -45,12 +52,18 @@ UPLOAD_DIR = BASE_DIR / "uploads"
 LOG_DIR = BASE_DIR / "logs"
 META_PATH = LIBRARY_DIR / "library.json"
 USAGE_PATH = BASE_DIR / "usage.json"
+CURRICULUM_ROOT = BASE_DIR / "generated_plans"
+CURRICULUM_UPLOAD_DIR = CURRICULUM_ROOT / "uploads"
+CURRICULUM_JOB_DIR = CURRICULUM_ROOT / "jobs"
+CURRICULUM_EXPORT_DIR = CURRICULUM_ROOT / "exports"
 
 load_dotenv(BASE_DIR / ".env")
 
 LIBRARY_DIR.mkdir(exist_ok=True)
 UPLOAD_DIR.mkdir(exist_ok=True)
 LOG_DIR.mkdir(exist_ok=True)
+for _folder in (CURRICULUM_UPLOAD_DIR, CURRICULUM_JOB_DIR, CURRICULUM_EXPORT_DIR):
+    _folder.mkdir(parents=True, exist_ok=True)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -753,7 +766,89 @@ def store_docx_file(lesson: LessonInput, docx_bytes: bytes) -> str:
     return filename
 
 
+
+# ----------------------------- Curriculum planner helpers -----------------------------
+
+CURRICULUM_ALLOWED_EXTENSIONS = {"pdf", "docx", "txt", "md", "csv", "pptx", "xlsx", "png", "jpg", "jpeg", "webp"}
+
+
+def _curriculum_allowed(filename: str) -> bool:
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in CURRICULUM_ALLOWED_EXTENSIONS
+
+
+def _curriculum_job_path(job_id: str) -> Path:
+    safe_id = re.sub(r"[^a-fA-F0-9]", "", job_id or "")[:64]
+    if not safe_id:
+        raise ValueError("Invalid plan session")
+    return CURRICULUM_JOB_DIR / f"{safe_id}.json"
+
+
+def _curriculum_save_job(job_id: str, payload: dict) -> None:
+    _curriculum_job_path(job_id).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _curriculum_load_job(job_id: str) -> dict:
+    path = _curriculum_job_path(job_id)
+    if not path.exists():
+        raise FileNotFoundError("انتهت جلسة الخطة. أنشئ الخطة مرة أخرى.")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _curriculum_clean_old_files(max_age_hours: int = 24) -> None:
+    cutoff = time.time() - max_age_hours * 3600
+    for folder in (CURRICULUM_UPLOAD_DIR, CURRICULUM_JOB_DIR, CURRICULUM_EXPORT_DIR):
+        for path in folder.glob("*"):
+            try:
+                if path.stat().st_mtime < cutoff:
+                    path.unlink() if path.is_file() else shutil.rmtree(path)
+            except OSError:
+                pass
+
+
+def _curriculum_apply_edits(payload: dict) -> dict:
+    plan_type = payload["plan_type"]
+    meta = payload["meta"]
+    for key in ("teacher", "subject", "grade", "academic_year"):
+        value = request.form.get(key)
+        if value is not None:
+            meta[key] = value.strip()
+    data = payload["plan"]
+    if plan_type == "medium":
+        for idx, week in enumerate(data["weeks"]):
+            for field in ("content", "learning_objectives", "ai_literacy", "resources"):
+                value = request.form.get(f"week_{idx}_{field}")
+                if value is not None:
+                    week[field] = value.strip()
+        for field in (
+            "title", "targets", "assessment_opportunities", "century_skills", "vocabulary",
+            "eps_guiding_statement", "global_citizenship", "cross_curricular", "national_identity",
+            "ai_integration_approach", "guardrails_prompt_controls", "cognitive_integrity_strategy", "ai_safeguarding",
+        ):
+            value = request.form.get(field)
+            if value is not None:
+                data[field] = value.strip()
+    else:
+        for idx, half in enumerate(data["half_terms"]):
+            for field in ("content", "summative_assessment"):
+                value = request.form.get(f"half_{idx}_{field}")
+                if value is not None:
+                    half[field] = value.strip()
+    payload["meta"] = meta
+    payload["plan"] = data
+    return payload
+
+
 # ----------------------------- Routes -----------------------------
+
+
+@app.errorhandler(413)
+def too_large(_error):
+    message = "حجم الملف أكبر من 35 MB."
+    if request.path.startswith("/curriculum"):
+        flash(message, "error")
+        return redirect(url_for("curriculum_planner"))
+    return render_template("index.html", error=message, status=status_payload()), 413
+
 
 @app.errorhandler(Exception)
 def handle_exception(exc):
@@ -761,12 +856,134 @@ def handle_exception(exc):
     message = "حدث خطأ داخل التطبيق ولم يتم إغلاق السيرفر. راجع ملف logs/error_log.txt."
     if request.path.startswith("/api/"):
         return jsonify({"ok": False, "error": message, "details": str(exc)}), 500
+    if request.path.startswith("/curriculum"):
+        return render_template("curriculum_planner.html", error=f"{message}\n{exc}", status=status_payload(), initial_plan_type="medium"), 500
     return render_template("index.html", error=f"{message}\n{exc}", status=status_payload()), 500
 
 
+
 @app.route("/")
+def dashboard():
+    _curriculum_clean_old_files()
+    return render_template("dashboard.html", status=status_payload())
+
+
+@app.route("/lesson-planner")
 def index():
     return render_template("index.html", status=status_payload())
+
+
+@app.get("/curriculum-planner")
+def curriculum_planner():
+    _curriculum_clean_old_files()
+    initial_plan_type = request.args.get("type", "medium")
+    if initial_plan_type not in {"medium", "long"}:
+        initial_plan_type = "medium"
+    return render_template("curriculum_planner.html", status=status_payload(), initial_plan_type=initial_plan_type)
+
+
+@app.post("/curriculum/generate")
+def curriculum_generate():
+    plan_type = request.form.get("plan_type", "medium")
+    language = request.form.get("language", "English")
+    meta = {
+        "teacher": request.form.get("teacher", "").strip(),
+        "subject": request.form.get("subject", "").strip(),
+        "grade": request.form.get("grade", "").strip(),
+        "academic_year": request.form.get("academic_year", "2026-2027").strip(),
+        "language": language,
+    }
+    if not all([meta["teacher"], meta["subject"], meta["grade"]]):
+        flash("يرجى إدخال اسم المعلم والمادة والصف.", "error")
+        return redirect(url_for("curriculum_planner", type=plan_type))
+
+    manual_topics = request.form.get("manual_topics", "").strip()
+    instructions = request.form.get("instructions", "").strip()
+    uploaded = request.files.get("curriculum_file")
+    source_text = ""
+    source_name = "Manual topics"
+    if uploaded and uploaded.filename:
+        if not _curriculum_allowed(uploaded.filename):
+            flash("نوع الملف غير مدعوم. استخدم PDF أو Word أو PowerPoint أو Excel أو صورة أو ملف نصي.", "error")
+            return redirect(url_for("curriculum_planner", type=plan_type))
+        safe_upload_name = secure_filename(uploaded.filename) or f"curriculum.{file_ext(uploaded.filename) or 'txt'}"
+        filename = f"{uuid.uuid4().hex}_{safe_upload_name}"
+        upload_path = CURRICULUM_UPLOAD_DIR / filename
+        uploaded.save(upload_path)
+        source_name = uploaded.filename
+        try:
+            source_text = extract_curriculum_text(upload_path)
+        except Exception as exc:
+            logger.exception("Curriculum file extraction failed")
+            flash(f"تعذر قراءة الملف: {exc}", "error")
+            return redirect(url_for("curriculum_planner", type=plan_type))
+
+    if not source_text and not manual_topics:
+        flash("ارفع الكتاب أو الفهرس، أو الصق قائمة الموضوعات.", "error")
+        return redirect(url_for("curriculum_planner", type=plan_type))
+
+    topics = candidate_topics(source_text, manual_topics)
+    if manual_topics:
+        manual_lines = [x.strip() for x in manual_topics.replace(";", "\n").splitlines() if x.strip()]
+        topics = list(dict.fromkeys(manual_lines + topics))
+
+    try:
+        if plan_type == "long":
+            plan = generate_long(meta, source_text, topics, language, instructions)
+        else:
+            plan_type = "medium"
+            plan = generate_medium(meta, source_text, topics, language, instructions)
+    except Exception as exc:
+        logger.exception("Curriculum plan generation failed")
+        flash(f"تعذر إنشاء الخطة: {exc}", "error")
+        return redirect(url_for("curriculum_planner", type=plan_type))
+
+    job_id = uuid.uuid4().hex
+    payload = {
+        "job_id": job_id,
+        "plan_type": plan_type,
+        "meta": meta,
+        "plan": plan.model_dump(),
+        "source_name": source_name,
+        "detected_topics": topics[:50],
+    }
+    _curriculum_save_job(job_id, payload)
+    return render_template("curriculum_preview.html", job=payload, status=status_payload())
+
+
+@app.post("/curriculum/export/<job_id>/<fmt>")
+def curriculum_export(job_id: str, fmt: str):
+    try:
+        payload = _curriculum_apply_edits(_curriculum_load_job(job_id))
+        _curriculum_save_job(job_id, payload)
+        meta = payload["meta"]
+        safe_subject = secure_filename(meta["subject"]) or "Subject"
+        if payload["plan_type"] == "medium":
+            plan = MediumPlan.model_validate(payload["plan"])
+            docx_path = CURRICULUM_EXPORT_DIR / f"MTP_{safe_subject}_{job_id[:8]}.docx"
+            build_medium(meta, plan, docx_path)
+        else:
+            plan = LongPlan.model_validate(payload["plan"])
+            docx_path = CURRICULUM_EXPORT_DIR / f"LTP_{safe_subject}_{job_id[:8]}.docx"
+            build_long(meta, plan, docx_path)
+
+        if fmt == "pdf":
+            try:
+                pdf_path = convert_to_pdf(docx_path, CURRICULUM_EXPORT_DIR)
+                return send_file(pdf_path, as_attachment=True, download_name=pdf_path.name)
+            except RuntimeError as exc:
+                flash(str(exc), "error")
+                return render_template("curriculum_preview.html", job=payload, status=status_payload()), 503
+        return send_file(
+            docx_path,
+            mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            as_attachment=True,
+            download_name=docx_path.name,
+        )
+    except Exception as exc:
+        logger.exception("Curriculum export failed")
+        flash(f"تعذر تصدير الخطة: {exc}", "error")
+        return redirect(url_for("curriculum_planner"))
 
 
 @app.route("/api/status")

@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Review Curriculum Plan</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='curriculum.css') }}?v=20260705">
+</head>
+<body>
+<main class="shell preview-shell">
+  <nav class="merged-nav preview-nav">
+    <a href="{{ url_for('dashboard') }}" data-ar="الرئيسية" data-en="Home">الرئيسية</a>
+    <a href="{{ url_for('curriculum_planner', type=job.plan_type) }}" data-ar="خطة جديدة" data-en="New Plan">خطة جديدة</a>
+    <a href="{{ url_for('index') }}" data-ar="تحضير الدروس" data-en="Lesson Planner">تحضير الدروس</a>
+    <button type="button" id="langToggle">English</button>
+  </nav>
+  <header class="preview-header">
+    <div><span class="eyebrow">REVIEW & EXPORT</span><h1 data-ar="راجع الخطة قبل التصدير" data-en="Review the plan before export">راجع الخطة قبل التصدير</h1><p data-ar="عدّل أي خانة، ثم نزّل الملف داخل قالب المدرسة الرسمي." data-en="Edit any field, then download the plan in the official school template.">عدّل أي خانة، ثم نزّل الملف داخل قالب المدرسة الرسمي.</p></div>
+    <img src="{{ url_for('static', filename='eps_logo.png') }}" alt="EPS">
+  </header>
+  {% with messages = get_flashed_messages(with_categories=true) %}{% for category, message in messages %}<div class="alert {{ category }}">{{ message }}</div>{% endfor %}{% endwith %}
+
+  <form id="exportForm" method="post">
+    <section class="meta-strip">
+      <label><span data-ar="المعلم" data-en="Teacher">المعلم</span><input name="teacher" value="{{ job.meta.teacher }}"></label>
+      <label><span data-ar="المادة" data-en="Subject">المادة</span><input name="subject" value="{{ job.meta.subject }}"></label>
+      <label><span data-ar="الصف" data-en="Grade">الصف</span><input name="grade" value="{{ job.meta.grade }}"></label>
+      <label><span data-ar="العام" data-en="Academic Year">العام</span><input name="academic_year" value="{{ job.meta.academic_year }}"></label>
+    </section>
+
+    {% if job.plan_type == 'medium' %}
+      <section class="editor-card">
+        <div class="editor-title"><h2>Medium Term Plan · 14 Weeks</h2><span>{{ job.source_name }}</span></div>
+        <div class="top-fields">
+          <label><span data-ar="العنوان" data-en="Title">العنوان</span><input name="title" value="{{ job.plan.title }}"></label>
+          <label><span data-ar="الأهداف العامة" data-en="Overall Targets">الأهداف العامة</span><textarea name="targets">{{ job.plan.targets }}</textarea></label>
+        </div>
+        <div class="table-wrap"><table class="edit-table">
+          <thead><tr><th>Week</th><th>Content</th><th>Learning Objectives</th><th>AI Literacy</th><th>Resources & AI Tools</th></tr></thead>
+          <tbody>
+          {% for week in job.plan.weeks %}
+            <tr>
+              <td><strong>W{{ loop.index }}</strong></td>
+              <td><textarea name="week_{{ loop.index0 }}_content">{{ week.content }}</textarea></td>
+              <td><textarea name="week_{{ loop.index0 }}_learning_objectives">{{ week.learning_objectives }}</textarea></td>
+              <td><textarea name="week_{{ loop.index0 }}_ai_literacy">{{ week.ai_literacy }}</textarea></td>
+              <td><textarea name="week_{{ loop.index0 }}_resources">{{ week.resources }}</textarea></td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table></div>
+        <div class="detail-grid">
+          {% for field, label in [
+            ('assessment_opportunities','Assessment Opportunities'),('century_skills','21st Century Skills'),('vocabulary','Vocabulary / Key Words'),
+            ('eps_guiding_statement','EPS Guiding Statement'),('global_citizenship','Global Citizenship'),('cross_curricular','Cross-curricular Links'),
+            ('national_identity','National Identity'),('ai_integration_approach','AI Integration Approach'),('guardrails_prompt_controls','Guardrails & Prompt Controls'),
+            ('cognitive_integrity_strategy','Cognitive Integrity'),('ai_safeguarding','AI Safeguarding') ] %}
+          <label><b>{{ label }}</b><textarea name="{{ field }}">{{ job.plan[field] }}</textarea></label>
+          {% endfor %}
+        </div>
+      </section>
+    {% else %}
+      <section class="editor-card">
+        <div class="editor-title"><h2>Long Term Plan · Full Academic Year</h2><span>{{ job.source_name }}</span></div>
+        <div class="half-grid">
+          {% for half in job.plan.half_terms %}
+          <article class="half-card"><h3>{{ half.title }}</h3>
+            <label><span data-ar="الوحدات والمحتوى" data-en="Units & Content">الوحدات والمحتوى</span><textarea name="half_{{ loop.index0 }}_content">{{ half.content }}</textarea></label>
+            <label><span data-ar="التقويم الختامي" data-en="Summative Assessment">التقويم الختامي</span><textarea name="half_{{ loop.index0 }}_summative_assessment">{{ half.summative_assessment }}</textarea></label>
+          </article>
+          {% endfor %}
+        </div>
+      </section>
+    {% endif %}
+
+    <section class="detected"><h3 data-ar="الموضوعات التي تم اكتشافها" data-en="Detected Curriculum Topics">الموضوعات التي تم اكتشافها</h3><div>{% for topic in job.detected_topics %}<span>{{ topic }}</span>{% endfor %}</div></section>
+    <p class="pdf-note" data-ar="تصدير Word يعمل مباشرة. تصدير PDF يحتاج LibreOffice مثبتًا على خدمة الاستضافة." data-en="Word export works directly. PDF export requires LibreOffice on the hosting service.">تصدير Word يعمل مباشرة. تصدير PDF يحتاج LibreOffice مثبتًا على خدمة الاستضافة.</p>
+    <div class="export-bar">
+      <a class="back-btn" href="{{ url_for('curriculum_planner', type=job.plan_type) }}" data-ar="إنشاء خطة جديدة" data-en="Create New Plan">إنشاء خطة جديدة</a>
+      <button type="button" class="word-btn" data-format="docx" data-ar="تنزيل Word" data-en="Download Word">تنزيل Word</button>
+      <button type="button" class="pdf-btn" data-format="pdf" data-ar="تنزيل PDF" data-en="Download PDF">تنزيل PDF</button>
+    </div>
+  </form>
+</main>
+<div id="loadingLayer" class="planner-loading hidden"><div class="planner-spinner"></div><h3 data-ar="جاري تجهيز ملف التصدير..." data-en="Preparing the export file...">جاري تجهيز ملف التصدير...</h3></div>
+<script>
+  let uiLang=localStorage.getItem('planning_ui_lang')||'ar'; const toggle=document.getElementById('langToggle');
+  function setUiLang(next){uiLang=next;document.documentElement.lang=next;document.documentElement.dir=next==='ar'?'rtl':'ltr';document.querySelectorAll('[data-ar]').forEach(el=>el.textContent=el.dataset[next]);toggle.textContent=next==='ar'?'English':'العربية';localStorage.setItem('planning_ui_lang',next)}
+  toggle.addEventListener('click',()=>setUiLang(uiLang==='ar'?'en':'ar'));
+  const form=document.getElementById('exportForm');
+  document.querySelectorAll('[data-format]').forEach(btn=>btn.addEventListener('click',()=>{document.getElementById('loadingLayer').classList.remove('hidden');const fmt=btn.dataset.format;form.action=`{{ url_for('curriculum_export', job_id=job.job_id, fmt='FORMAT') }}`.replace('FORMAT',fmt);form.submit()}));
+  setUiLang(uiLang);
+</script>
+</body></html>
