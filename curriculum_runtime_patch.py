@@ -1,9 +1,16 @@
 from __future__ import annotations
 
+import base64
+import io
 import os
 import re
 import time
 from pathlib import Path
+
+IMAGE_EXTENSIONS = {
+    ".png", ".jpg", ".jpeg", ".webp", ".jfif", ".bmp", ".gif",
+    ".tif", ".tiff", ".heic", ".heif", ".avif",
+}
 
 
 def _clean_line(text: str) -> str:
@@ -65,17 +72,117 @@ def _fast_pdf(path: Path) -> str:
     return "\n".join(f"[HEADING] {item}" for item in output)
 
 
+def _image_as_jpeg_data_url(path: Path) -> str:
+    from PIL import Image, ImageOps
+
+    try:
+        from pillow_heif import register_heif_opener
+        register_heif_opener()
+    except Exception:
+        pass
+
+    with Image.open(path) as image:
+        image = ImageOps.exif_transpose(image)
+        if getattr(image, "is_animated", False):
+            image.seek(0)
+        if image.mode not in {"RGB", "L"}:
+            background = Image.new("RGB", image.size, "white")
+            if image.mode == "RGBA":
+                background.paste(image, mask=image.getchannel("A"))
+            else:
+                background.paste(image.convert("RGB"))
+            image = background
+        else:
+            image = image.convert("RGB")
+        image.thumbnail((2200, 2200))
+        buffer = io.BytesIO()
+        image.save(buffer, format="JPEG", quality=88, optimize=True)
+    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+    return f"data:image/jpeg;base64,{encoded}"
+
+
+def _image_with_openai(path: Path) -> str:
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return ""
+    try:
+        from openai import OpenAI
+
+        client = OpenAI(api_key=api_key, timeout=22.0, max_retries=0)
+        response = client.responses.create(
+            model=os.getenv("CURRICULUM_VISION_MODEL", os.getenv("OPENAI_MODEL", "gpt-4.1-mini")),
+            input=[{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": (
+                            "Read this curriculum contents-page image. Return only genuine unit, chapter, "
+                            "section, and lesson titles, one title per line, in their original language. "
+                            "Remove page numbers, lesson codes, publisher text, copyright text, examples, "
+                            "questions, equations, and commentary. Do not invent any title."
+                        ),
+                    },
+                    {"type": "input_image", "image_url": _image_as_jpeg_data_url(path)},
+                ],
+            }],
+            max_output_tokens=1800,
+            store=False,
+        )
+        return str(getattr(response, "output_text", "") or "").strip()
+    except Exception:
+        return ""
+
+
+def _image_with_local_ocr(path: Path) -> str:
+    try:
+        import pytesseract
+        from PIL import Image, ImageOps
+
+        try:
+            from pillow_heif import register_heif_opener
+            register_heif_opener()
+        except Exception:
+            pass
+
+        with Image.open(path) as image:
+            image = ImageOps.exif_transpose(image)
+            if getattr(image, "is_animated", False):
+                image.seek(0)
+            image.thumbnail((2200, 2200))
+            return pytesseract.image_to_string(
+                image.convert("RGB"),
+                lang=os.getenv("TESSERACT_LANG", "eng+ara"),
+                timeout=10,
+            ).strip()
+    except Exception:
+        return ""
+
+
+def _fast_image(path: Path) -> str:
+    text = _image_with_openai(path)
+    if not text:
+        text = _image_with_local_ocr(path)
+    return text
+
+
 def install(core) -> None:
     original_extract = core.extract_curriculum_text
 
     def fast_extract(path: Path) -> str:
-        if Path(path).suffix.lower() == ".pdf":
+        suffix = Path(path).suffix.lower()
+        if suffix == ".pdf":
             return _fast_pdf(Path(path))
+        if suffix in IMAGE_EXTENSIONS:
+            return _fast_image(Path(path))
         return original_extract(path)
 
     def local_refine(meta, source_text, candidates, language):
         from curriculum_ai import clean_topics
         return clean_topics(candidates)
 
+    # Extend upload validation to the common image formats used by phones,
+    # WhatsApp, Windows screenshots, scanners, and iPhones.
+    core.CURRICULUM_ALLOWED_EXTENSIONS.update(ext.lstrip(".") for ext in IMAGE_EXTENSIONS)
     core.extract_curriculum_text = fast_extract
     core.refine_topics = local_refine
