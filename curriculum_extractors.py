@@ -5,32 +5,60 @@ import re
 import time
 from pathlib import Path
 
-TEXT_LIMIT = 24000
-TOPIC_LIMIT = 100
-NOISE = (
-    "copyright", "all rights reserved", "publisher", "publishing", "isbn", "mcgraw",
-    "pearson", "trademark", "www.", "http://", "https://", "©", "®", "™",
-    "حقوق الطبع", "جميع الحقوق محفوظة", "الناشر", "الطبعة", "حقوق النشر",
-    "المؤلف", "المراجع", "المصدر",
+TEXT_LIMIT = 28_000
+TOPIC_LIMIT = 90
+
+NOISE_TERMS = (
+    "copyright", "all rights reserved", "rights reserved", "permission", "publisher",
+    "publishing", "isbn", "mcgraw", "pearson", "education, llc", "trademark",
+    "sourced from", "source:", "printed in", "edition", "www.", "http://", "https://",
+    "©", "®", "™", "differentiation", "teacher edition", "student edition",
+    "حقوق الطبع", "جميع الحقوق محفوظة", "الناشر", "الطبعة", "ردمك", "حقوق النشر",
+    "تم النشر", "لا يجوز", "إعادة إنتاج", "المؤلف", "المراجع", "المصدر",
 )
-HEADS = (
+
+HEADING_WORDS = (
     "unit", "chapter", "lesson", "section", "module", "topic", "strand", "domain",
-    "الوحدة", "الفصل", "الدرس", "الموضوع", "المحور", "المجال", "الباب",
+    "الوحدة", "الفصل", "الدرس", "الموضوع", "المحور", "المجال", "الباب", "القسم",
 )
-BODY = (
-    "example", "exercise", "practice", "find the", "calculate", "suppose", "if the",
-    "learning objective", "success criteria", "حل المثال", "أوجد", "احسب", "إذا كان",
-    "مثال", "نشاط", "ناقش", "فسر", "علل", "اختر الإجابة",
+
+BODY_HINTS = (
+    "example", "worked example", "exercise", "practice", "find the", "calculate", "suppose",
+    "if the", "where the", "is defined", "learning objective", "success criteria", "warning",
+    "note that", "notice", "figure", "table", "answer", "solution", "check your understanding",
+    "حل المثال", "مثال", "تمرين", "تدرب", "أوجد", "احسب", "إذا كان", "حيث إن",
+    "يوضح الشكل", "الشكل", "الجدول", "نشاط", "ناقش", "فسر", "علل", "اختر الإجابة",
+    "اكتب", "استخدم الشكل", "الحل", "تحذير", "لاحظ", "تذكر", "بما أن", "نفترض",
 )
-GENERIC = {
-    "contents", "table of contents", "index", "glossary", "references", "introduction",
-    "answers", "answer key", "review", "assessment", "guided practice", "homework",
-    "objectives", "resources", "الفهرس", "المحتويات", "المقدمة", "المراجع",
-    "الإجابات", "مراجعة", "تقويم", "أهداف التعلم", "المصادر", "الواجب",
+
+GENERIC_NON_TOPICS = {
+    "contents", "table of contents", "index", "glossary", "references", "acknowledgements",
+    "introduction", "preface", "answers", "answer key", "review", "assessment",
+    "guided practice", "independent practice", "homework", "objectives", "resources",
+    "الفهرس", "المحتويات", "المقدمة", "المراجع", "الإجابات", "مفتاح الإجابة",
+    "مراجعة", "تقويم", "أهداف التعلم", "المصادر", "الواجب", "التدريب الموجه",
 }
 
+ARABIC_DIGITS = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
 
-def _normal(text: str) -> str:
+
+def _env_int(name: str, default: int, minimum: int, maximum: int) -> int:
+    try:
+        value = int(os.getenv(name, str(default)))
+    except Exception:
+        value = default
+    return max(minimum, min(maximum, value))
+
+
+def _env_float(name: str, default: float, minimum: float, maximum: float) -> float:
+    try:
+        value = float(os.getenv(name, str(default)))
+    except Exception:
+        value = default
+    return max(minimum, min(maximum, value))
+
+
+def _normalize(text: str) -> str:
     text = (text or "").replace("\x00", " ")
     text = re.sub(r"[\t\u00a0]+", " ", text)
     text = re.sub(r"\r\n?", "\n", text)
@@ -39,154 +67,276 @@ def _normal(text: str) -> str:
     return text.strip()[:TEXT_LIMIT]
 
 
-def _clean(line: str) -> str:
-    line = re.sub(r"^\[HEADING\]\s*", "", str(line or ""), flags=re.I)
-    line = re.sub(r"\.{2,}\s*\d+\s*$", "", line)
-    line = re.sub(r"^\s*(?:page|صفحة)\s*\d+\s*$", "", line, flags=re.I)
-    return re.sub(r"\s+", " ", line).strip(" -–—|:;,.\t")
+def _remove_numbering(text: str) -> str:
+    """Remove lesson/page numbering without damaging the teachable title."""
+    text = text.translate(ARABIC_DIGITS)
+    text = re.sub(r"^\s*\[HEADING\]\s*", "", text, flags=re.I)
+    # Labels and codes at the beginning: Lesson 1-3, الدرس 3.2, Chapter 4 ...
+    labels = r"unit|chapter|lesson|section|module|topic|الوحدة|الفصل|الدرس|القسم|الباب|الموضوع"
+    text = re.sub(
+        rf"^\s*(?:{labels})\s*(?:no\.?|رقم)?\s*[0-9]+(?:[.\-][0-9]+)*\s*[:\-–—|]*\s*",
+        "", text, flags=re.I,
+    )
+    # Hierarchical code at the beginning: 3.2 Title / 1-3 Title.
+    text = re.sub(r"^\s*[0-9]+(?:[.\-][0-9]+){1,3}\s*[:\-–—|]*\s*", "", text)
+    # Trailing lesson/page code.
+    text = re.sub(
+        rf"\s*[|\-–—:]\s*(?:{labels})?\s*[0-9]+(?:[.\-][0-9]+)*\s*$",
+        "", text, flags=re.I,
+    )
+    text = re.sub(r"\.{2,}\s*[0-9]+\s*$", "", text)
+    text = re.sub(r"\s+(?:page|p\.?|صفحة)\s*[0-9]+\s*$", "", text, flags=re.I)
+    # Remove isolated numeric tokens. A professional plan displays titles, not book numbering.
+    if os.getenv("CURRICULUM_KEEP_TOPIC_NUMBERS", "0").strip().lower() not in {"1", "true", "yes"}:
+        text = re.sub(r"(?<![A-Za-z])\b[0-9]+(?:[.\-][0-9]+)*\b(?![A-Za-z])", " ", text)
+    return re.sub(r"\s+", " ", text).strip(" -–—|:;,.")
 
 
-def _bad(line: str) -> bool:
-    line = _clean(line)
-    low = line.casefold()
-    words = line.split()
-    if not line or low in GENERIC or any(x in low for x in NOISE + BODY):
+def _clean_title(text: str) -> str:
+    text = _remove_numbering(str(text or ""))
+    text = re.sub(r"^[•▪◦●✓✔]+\s*", "", text)
+    text = re.sub(r"\s+", " ", text).strip(" -–—|:;,.")
+    return text
+
+
+def _is_noise(text: str) -> bool:
+    clean = _clean_title(text)
+    lower = clean.casefold()
+    if not clean or lower in GENERIC_NON_TOPICS:
         return True
-    if len(line) > 120 or len(words) > 17:
+    if any(term in lower for term in NOISE_TERMS):
         return True
-    if re.search(r"\.(?:com|org|net|edu|ae)\b", low) or "@" in line:
+    if "@" in clean or re.search(r"\.(?:com|org|net|edu|ae)\b", lower):
         return True
-    if re.fullmatch(r"[\d\W_]+", line):
+    if re.search(r"\b(?:ISBN|DOI)\b", clean, re.I):
         return True
-    if sum(c.isdigit() for c in line) >= 6:
+    if re.fullmatch(r"[\d\W_]+", clean):
         return True
     return False
 
 
-def _strong(raw: str, line: str) -> bool:
-    low = line.casefold()
-    return (
-        str(raw).lstrip().lower().startswith("[heading]")
-        or any(re.match(rf"^{re.escape(w)}\b", low) for w in HEADS)
-        or bool(re.match(r"^\d+(?:\.\d+){1,3}\s+\S", line))
-    )
+def _looks_like_body(text: str) -> bool:
+    clean = _clean_title(text)
+    lower = clean.casefold()
+    words = clean.split()
+    if any(hint in lower for hint in BODY_HINTS):
+        return True
+    if len(clean) > 105 or len(words) > 13:
+        return True
+    if len(words) >= 7 and re.search(r"[.!?؟؛:]$", clean):
+        return True
+    digit_count = sum(ch.isdigit() for ch in clean)
+    operator_count = sum(ch in "+=<>[]{}()" for ch in clean)
+    if digit_count >= 3 or operator_count >= 3:
+        return True
+    if re.search(r"\b(?:km|mph|m/s|cm|mm|kg|sec|seconds?|دقيقة|ثانية|متر|ميل)\b", lower) and len(words) > 5:
+        return True
+    return False
 
 
-def _short(line: str) -> bool:
-    return 1 <= len(line.split()) <= 11 and len(line) <= 100 and not re.search(r"[.!?؟؛]$", line)
+def _is_explicit_heading(raw: str, clean: str) -> bool:
+    lower_raw = str(raw or "").lstrip().casefold()
+    lower = clean.casefold()
+    if lower_raw.startswith("[heading]"):
+        return True
+    if any(re.match(rf"^{re.escape(word)}\b", lower_raw) for word in HEADING_WORDS):
+        return True
+    if re.match(r"^\s*[0-9٠-٩]+(?:[.\-][0-9٠-٩]+){1,3}\s+\S", str(raw or "")):
+        return True
+    return False
 
 
-def _key(line: str) -> str:
-    return re.sub(r"[^\w\u0600-\u06ff]+", "", line.casefold())
+def _title_shape_ok(clean: str) -> bool:
+    words = clean.split()
+    if not (1 <= len(words) <= 13):
+        return False
+    if len(clean) > 105 or _is_noise(clean) or _looks_like_body(clean):
+        return False
+    # A title normally does not end as a full sentence.
+    if re.search(r"[.!?؟؛]$", clean):
+        return False
+    return True
+
+
+def _dedupe_key(text: str) -> str:
+    return re.sub(r"[^\w\u0600-\u06ff]+", "", _clean_title(text).casefold())
+
+
+def _append_unique(output: list[str], seen: set[str], raw: str) -> None:
+    clean = _clean_title(raw)
+    if not _title_shape_ok(clean):
+        return
+    key = _dedupe_key(clean)
+    if not key or key in seen:
+        return
+    # Avoid titles that are mostly contained in a longer, more descriptive title already kept.
+    if any(key in old or old in key for old in seen if min(len(key), len(old)) >= 10):
+        return
+    seen.add(key)
+    output.append(clean)
+
+
+def _pdf_line_candidates(page) -> list[tuple[str, float, float, bool]]:
+    """Return (text, max size, page median size, bold) with bounded processing."""
+    data = page.get_text("dict", sort=True)
+    raw: list[tuple[str, float, bool]] = []
+    sizes: list[float] = []
+    for block in data.get("blocks", []):
+        if block.get("type") != 0:
+            continue
+        for line in block.get("lines", []):
+            spans = line.get("spans", [])
+            text = "".join(str(span.get("text", "")) for span in spans).strip()
+            if not text:
+                continue
+            line_sizes = [float(span.get("size", 0) or 0) for span in spans if str(span.get("text", "")).strip()]
+            if not line_sizes:
+                continue
+            sizes.extend(line_sizes)
+            bold = any(
+                "bold" in str(span.get("font", "")).casefold() or int(span.get("flags", 0) or 0) & 16
+                for span in spans
+            )
+            raw.append((text, max(line_sizes), bold))
+    median = sorted(sizes)[len(sizes) // 2] if sizes else 10.0
+    return [(text, size, median, bold) for text, size, bold in raw]
 
 
 def extract_pdf(path: Path) -> str:
+    """Extract only likely curriculum headings using bookmarks and visible typography."""
     import fitz
 
-    max_pages = max(8, min(48, int(os.getenv("CURRICULUM_PDF_MAX_PAGES", "32"))))
-    seconds = max(4.0, min(15.0, float(os.getenv("CURRICULUM_EXTRACT_SECONDS", "10"))))
-    deadline = time.monotonic() + seconds
-    out: list[str] = []
+    max_pages = _env_int("CURRICULUM_PDF_MAX_PAGES", 42, 8, 70)
+    deadline = time.monotonic() + _env_float("CURRICULUM_EXTRACT_SECONDS", 12.0, 5.0, 20.0)
+    output: list[str] = []
+    seen: set[str] = set()
 
     with fitz.open(path) as pdf:
         if getattr(pdf, "needs_pass", False):
-            raise ValueError("The PDF is password protected.")
+            raise ValueError("ملف PDF محمي بكلمة مرور.")
 
         try:
             toc = pdf.get_toc(simple=True) or []
         except Exception:
             toc = []
-        for item in toc[:200]:
+        for item in toc[:250]:
             if len(item) >= 2:
-                title = _clean(str(item[1]))
-                if not _bad(title):
-                    out.append("[HEADING] " + title)
-        if len(out) >= 4:
-            return _normal("\n".join(out))
+                _append_unique(output, seen, str(item[1]))
+        if len(output) >= 6:
+            return _normalize("\n".join(f"[HEADING] {x}" for x in output))
 
         for page_no in range(min(len(pdf), max_pages)):
-            if time.monotonic() >= deadline or len("\n".join(out)) >= TEXT_LIMIT:
+            if time.monotonic() >= deadline or len(output) >= TOPIC_LIMIT:
                 break
             try:
-                text = pdf[page_no].get_text("text", sort=True) or ""
+                candidates = _pdf_line_candidates(pdf[page_no])
             except Exception:
                 continue
             kept = 0
-            for raw in text.splitlines():
-                line = _clean(raw)
-                if _bad(line) or not (_strong(raw, line) or _short(line)):
+            for raw, max_size, median_size, bold in candidates:
+                clean = _clean_title(raw)
+                explicit = _is_explicit_heading(raw, clean)
+                typography = (
+                    _title_shape_ok(clean)
+                    and (
+                        max_size >= max(11.0, median_size * 1.28)
+                        or (bold and max_size >= max(10.5, median_size * 1.08))
+                    )
+                )
+                if not (explicit or typography):
                     continue
-                out.append(("[HEADING] " if _strong(raw, line) else "") + line)
-                kept += 1
-                if kept >= 14:
+                before = len(output)
+                _append_unique(output, seen, clean)
+                if len(output) > before:
+                    kept += 1
+                if kept >= 10:
                     break
-    return _normal("\n".join(out))
+
+    return _normalize("\n".join(f"[HEADING] {x}" for x in output))
 
 
 def extract_docx(path: Path) -> str:
     from docx import Document
 
-    deadline = time.monotonic() + 10
+    deadline = time.monotonic() + _env_float("CURRICULUM_EXTRACT_SECONDS", 12.0, 5.0, 20.0)
     doc = Document(path)
-    out: list[str] = []
-    total = 0
-    for p in doc.paragraphs:
-        if time.monotonic() >= deadline or total >= TEXT_LIMIT:
+    output: list[str] = []
+    seen: set[str] = set()
+
+    for paragraph in doc.paragraphs:
+        if time.monotonic() >= deadline or len(output) >= TOPIC_LIMIT:
             break
-        text = p.text.strip()
+        text = paragraph.text.strip()
         if not text:
             continue
-        style = (p.style.name or "").lower() if p.style else ""
-        value = ("[HEADING] " if "heading" in style or "title" in style else "") + text
-        out.append(value)
-        total += len(value)
-    for table in doc.tables[:12]:
-        if time.monotonic() >= deadline or total >= TEXT_LIMIT:
+        style = (paragraph.style.name or "").casefold() if paragraph.style else ""
+        explicit = "heading" in style or "title" in style or _is_explicit_heading(text, _clean_title(text))
+        if explicit:
+            _append_unique(output, seen, text)
+
+    # Tables are commonly used for a contents page. Treat short individual cells as candidates.
+    for table in doc.tables[:20]:
+        if time.monotonic() >= deadline or len(output) >= TOPIC_LIMIT:
             break
-        for row in table.rows[:60]:
-            value = " | ".join(c.text.strip() for c in row.cells if c.text.strip())
-            if value:
-                out.append(value)
-                total += len(value)
-    return _normal("\n".join(out))
+        for row in table.rows[:100]:
+            for cell in row.cells:
+                for raw in cell.text.splitlines():
+                    if _is_explicit_heading(raw, _clean_title(raw)) or _title_shape_ok(_clean_title(raw)):
+                        _append_unique(output, seen, raw)
+            if time.monotonic() >= deadline or len(output) >= TOPIC_LIMIT:
+                break
+
+    return _normalize("\n".join(f"[HEADING] {x}" for x in output))
 
 
 def extract_pptx(path: Path) -> str:
     from pptx import Presentation
 
-    out: list[str] = []
-    for slide in Presentation(path).slides[:100]:
+    output: list[str] = []
+    seen: set[str] = set()
+    deadline = time.monotonic() + _env_float("CURRICULUM_EXTRACT_SECONDS", 12.0, 5.0, 20.0)
+    prs = Presentation(path)
+    for slide in prs.slides[:100]:
+        if time.monotonic() >= deadline or len(output) >= TOPIC_LIMIT:
+            break
+        title_shape = getattr(slide.shapes, "title", None)
+        if title_shape is not None and getattr(title_shape, "text", "").strip():
+            _append_unique(output, seen, title_shape.text)
         for shape in slide.shapes:
             text = getattr(shape, "text", "")
             if not isinstance(text, str):
                 continue
             for raw in text.splitlines():
-                line = _clean(raw)
-                if not _bad(line) and (_strong(raw, line) or _short(line)):
-                    out.append(("[HEADING] " if _strong(raw, line) else "") + line)
-        if len("\n".join(out)) >= TEXT_LIMIT:
-            break
-    return _normal("\n".join(out))
+                if _is_explicit_heading(raw, _clean_title(raw)):
+                    _append_unique(output, seen, raw)
+    return _normalize("\n".join(f"[HEADING] {x}" for x in output))
 
 
 def extract_xlsx(path: Path) -> str:
     from openpyxl import load_workbook
 
+    output: list[str] = []
+    seen: set[str] = set()
+    deadline = time.monotonic() + _env_float("CURRICULUM_EXTRACT_SECONDS", 12.0, 5.0, 20.0)
     wb = load_workbook(path, data_only=True, read_only=True)
-    out: list[str] = []
     try:
-        for ws in wb.worksheets[:10]:
-            for index, row in enumerate(ws.iter_rows(values_only=True), 1):
-                if index > 250:
+        for ws in wb.worksheets[:12]:
+            if time.monotonic() >= deadline or len(output) >= TOPIC_LIMIT:
+                break
+            for row_no, row in enumerate(ws.iter_rows(values_only=True), 1):
+                if row_no > 350 or time.monotonic() >= deadline:
                     break
-                values = [str(v).strip() for v in row if v is not None and str(v).strip()]
-                if values:
-                    out.append(" | ".join(values))
-                if len("\n".join(out)) >= TEXT_LIMIT:
-                    return _normal("\n".join(out))
+                for value in row:
+                    if value is None:
+                        continue
+                    raw = str(value).strip()
+                    if _is_explicit_heading(raw, _clean_title(raw)) or _title_shape_ok(_clean_title(raw)):
+                        _append_unique(output, seen, raw)
+                if len(output) >= TOPIC_LIMIT:
+                    break
     finally:
         wb.close()
-    return _normal("\n".join(out))
+    return _normalize("\n".join(f"[HEADING] {x}" for x in output))
 
 
 def extract_image(path: Path) -> str:
@@ -195,10 +345,11 @@ def extract_image(path: Path) -> str:
         from PIL import Image
 
         with Image.open(path) as image:
-            image.thumbnail((2000, 2000))
-            return _normal(pytesseract.image_to_string(
-                image, lang=os.getenv("TESSERACT_LANG", "eng+ara"), timeout=7
-            ))
+            image.thumbnail((2200, 2200))
+            text = pytesseract.image_to_string(
+                image, lang=os.getenv("TESSERACT_LANG", "eng+ara"), timeout=8
+            )
+        return _normalize(text)
     except Exception:
         return ""
 
@@ -216,44 +367,33 @@ def extract_text(path: Path) -> str:
     if suffix in {".png", ".jpg", ".jpeg", ".webp"}:
         return extract_image(path)
     if suffix in {".txt", ".md", ".csv"}:
-        return _normal(path.read_text(encoding="utf-8", errors="ignore"))
-    raise ValueError("Unsupported file type")
+        return _normalize(path.read_text(encoding="utf-8", errors="ignore"))
+    raise ValueError("نوع الملف غير مدعوم")
+
+
+def _manual_topic_lines(manual_topics: str) -> list[str]:
+    output: list[str] = []
+    seen: set[str] = set()
+    for raw in re.split(r"[\n;•]+", manual_topics or ""):
+        _append_unique(output, seen, raw)
+        if len(output) >= TOPIC_LIMIT:
+            break
+    return output
 
 
 def candidate_topics(source_text: str, manual_topics: str = "") -> list[str]:
-    out: list[str] = []
-    seen: set[str] = set()
+    """Return a strict, ordered list of teachable titles only."""
+    output = _manual_topic_lines(manual_topics)
+    seen = {_dedupe_key(item) for item in output}
 
-    def add(raw: str) -> None:
-        line = _clean(raw)
-        key = _key(line)
-        if not key or key in seen or _bad(line):
-            return
-        seen.add(key)
-        out.append(line)
-
-    for raw in re.split(r"[\n;•]+", manual_topics or ""):
-        add(raw)
-
-    strong: list[str] = []
-    weak: list[str] = []
     for raw_line in (source_text or "").splitlines():
-        parts = raw_line.split("|") if "|" in raw_line else [raw_line]
-        for raw in parts:
-            line = _clean(raw)
-            if _bad(line):
-                continue
-            if _strong(raw, line):
-                strong.append(line)
-            elif _short(line):
-                weak.append(line)
-
-    for item in strong:
-        add(item)
-        if len(out) >= TOPIC_LIMIT:
-            return out
-    for item in weak[:40 if len(out) < 8 else 18]:
-        add(item)
-        if len(out) >= TOPIC_LIMIT:
-            break
-    return out
+        fragments = [raw_line]
+        if "|" in raw_line:
+            fragments = [part.strip() for part in raw_line.split("|") if part.strip()]
+        for raw in fragments:
+            clean = _clean_title(raw)
+            if _is_explicit_heading(raw, clean) or _title_shape_ok(clean):
+                _append_unique(output, seen, clean)
+            if len(output) >= TOPIC_LIMIT:
+                return output
+    return output

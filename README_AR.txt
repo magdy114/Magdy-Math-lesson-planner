@@ -1,14 +1,41 @@
-إصلاح نهائي لمشكلة HTTP 502 عند إنشاء Medium/Long Term Plan على Render
+Magdy Planning Studio - التطبيق المدمج
+=====================================
 
-الملفان المطلوب رفعهما إلى جذر مستودع GitHub واستبدال النسختين القديمتين:
-1) curriculum_extractors.py
-2) curriculum_ai.py
+هذا المشروع يدمج ثلاثة أنظمة داخل رابط واحد:
+1) Lesson Planner: تحضير حتى 5 دروس مع معاينة وتصدير Word.
+2) Medium Term Plan: توزيع المحتوى على 14 أسبوعًا داخل قالب المدرسة الرسمي.
+3) Long Term Plan: توزيع العام على HT1 إلى HT6 داخل قالب المدرسة الرسمي.
 
-الإصلاحات:
-- قراءة فهرس PDF أولاً بدل مسح الكتاب كله.
-- حد أقصى افتراضي 32 صفحة و10 ثوانٍ للاستخراج.
-- استخدام النص المباشر منخفض الذاكرة بدل get_text("dict").
-- عدم استدعاء الذكاء الاصطناعي داخل طلب إنشاء الخطة افتراضيًا.
-- الخطة الطويلة والمتوسطة تُنشآن محليًا فورًا مع استمرار Word وPDF.
+الصفحة الرئيسية:
+- /                     لوحة اختيار نوع التخطيط
+- /lesson-planner       تحضير الدروس
+- /curriculum-planner   خطط MTP / LTP
+- /library              مكتبة تحضير الدروس
 
-بعد Commit changes انتظر Render حتى Live ثم اضغط Ctrl+F5.
+تشغيل محلي:
+1) ثبّت Python 3.10 أو أحدث.
+2) نفّذ: pip install -r requirements.txt
+3) انسخ .env.example إلى .env وأضف OPENAI_API_KEY.
+4) نفّذ: python app.py
+5) افتح: http://127.0.0.1:5000
+
+النشر على Render:
+- Build Command:
+  pip install -r requirements.txt
+- Start Command:
+  gunicorn expert_entry:app --bind 0.0.0.0:$PORT --timeout 180
+- Environment Variables:
+  OPENAI_API_KEY
+  OPENAI_MODEL=gpt-5.5
+  FLASK_SECRET
+  DAILY_TOTAL_LIMIT=300
+  DAILY_USER_LIMIT=25
+
+ملاحظات مهمة:
+- لا تحذف expert_entry.py لأن Render يعتمد عليه لتشغيل محرك التحضير المتقدم.
+- قوالب Word موجودة في assets و word_templates.
+- يعمل النظام بوضع Smart Offline Mode عند غياب مفتاح الذكاء الاصطناعي.
+- تصدير Word يعمل مباشرة داخل القالب الرسمي.
+- تصدير PDF يعمل مباشرة من التطبيق بمحرك Python ولا يحتاج LibreOffice.
+- الملفات المؤقتة للخطط تحفظ في generated_plans وتحذف تلقائيًا بعد 24 ساعة.
+- ملفات تحضير الدروس تحفظ في generated_lessons.
