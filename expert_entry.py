@@ -2,13 +2,21 @@
 import app as core
 import lesson_engine
 import word_engine
+import curriculum_runtime_patch
 
 # Use the official lesson-plan template stored in the main assets folder.
 core.TEMPLATE_PATH = core.BASE_DIR / "assets" / "Lesson_Plan_Template_AY2026_2027.docx"
 
+
 def content_for(lesson):
     return lesson_engine.build_expert_content(lesson, core)
 
-vars(core).update({'build_content': content_for})
+
+vars(core).update({"build_content": content_for})
 word_engine.install_word_upgrade(core)
+
+# Keep curriculum generation fast on Render: bounded PDF extraction and no network
+# refinement call inside the web request.
+curriculum_runtime_patch.install(core)
+
 app = core.app
