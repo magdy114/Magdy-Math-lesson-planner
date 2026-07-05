@@ -51,16 +51,12 @@ def _set_cell_text(cell, text: str, font_size: float = 8.0, bold_first: bool = F
         run.bold = bold_first and idx == 0
         run.font.size = Pt(font_size)
         run.font.name = "Arial"
-        run._element.rPr.rFonts.set(qn("w:eastAsia"), "Arial")
+        run._element.get_or_add_rPr().rFonts.set(qn("w:eastAsia"), "Arial")
         new_paragraphs.append(p)
-    # python-docx adds paragraphs after nested tables. Move them before the first nested table.
     if preserve_nested_tables and nested:
         tbl_el = nested[0]._tbl
         for p in new_paragraphs:
             tbl_el.addprevious(p._p)
-        # A Word table cell must end with a paragraph after a nested table.
-        # Keeping this closing paragraph prevents later paragraphs from rendering
-        # visually outside the cell borders in Word/LibreOffice.
         closing = cell.add_paragraph()
         closing.paragraph_format.space_before = Pt(0)
         closing.paragraph_format.space_after = Pt(0)
@@ -115,7 +111,6 @@ def build_medium(meta: dict, plan: MediumPlan, output_path: Path) -> Path:
     doc = Document(MEDIUM_TEMPLATE)
     rtl = meta.get("language") == "Arabic"
 
-    # Main title paragraph.
     if doc.paragraphs:
         p = doc.paragraphs[0]
         p.text = plan.title
@@ -140,7 +135,6 @@ def build_medium(meta: dict, plan: MediumPlan, output_path: Path) -> Path:
         _set_cell_text(row.cells[2], item.learning_objectives, 6.4, False, rtl)
         _set_cell_text(row.cells[3], item.ai_literacy, 6.2, False, rtl)
         _set_cell_text(row.cells[4], item.resources, 6.2, False, rtl)
-    # Keep break row concise and blank in planning columns.
     for c in range(1, 5):
         _set_cell_text(weekly.rows[7].cells[c], "", 7, False, rtl)
 
@@ -156,30 +150,14 @@ def build_medium(meta: dict, plan: MediumPlan, output_path: Path) -> Path:
     _set_cell_text(footer.cell(0, 0), f"Link to EPS Guiding Statement (Competences/HQL/Values):\n{plan.eps_guiding_statement}", 7.0, True, rtl)
     _set_cell_text(footer.cell(1, 0), f"Global Citizenship:\n{plan.global_citizenship}", 7.0, True, rtl)
     _set_cell_text(footer.cell(2, 0), f"Cross-curricular / horizontal articulation:\n{plan.cross_curricular}", 7.0, True, rtl)
-    _set_cell_text(footer.cell(3, 0), f"Link to National Identity Mark:\n{plan.national_identity}", 7.0, True, rtl)
 
-    ai_cell = footer.cell(4, 0)
-    ai_text = (
-        f"1. AI Integration Approach\n{plan.ai_integration_approach}\n"
-        f"2. Guardrails & Prompt Controls\n{plan.guardrails_prompt_controls}\n"
-        f"3. Cognitive Integrity Strategy\n{plan.cognitive_integrity_strategy}\n"
-        f"4. AI Safeguarding & Responsible Use\n{plan.ai_safeguarding}\n"
-        f"5. AI Implementation & Compliance Tracking"
-    )
-    _set_cell_text(ai_cell, ai_text, 8, False, rtl, preserve_nested_tables=True)
+    # Preserve the official National Identity checkbox controls in this row.
+    _cant_split(footer.rows[3])
+
+    # Preserve all official AI/compliance dropdowns and the date field exactly as supplied.
+    # Teachers can make their own selections in Microsoft Word.
     _cant_split(footer.rows[4])
     _set_row_min_height(footer.rows[4], 5600)
-    nested = ai_cell.tables[0]
-    items = plan.compliance or []
-    # Template has one data row; add rows when needed.
-    while len(nested.rows) < 1 + max(1, len(items)):
-        nested.add_row()
-    for idx, item in enumerate(items[:4], start=1):
-        for col, value in enumerate(_compliance_line(item)):
-            _set_cell_text(nested.cell(idx, col), value, 7.2, False, rtl)
-    if not items:
-        for col in range(5):
-            _set_cell_text(nested.cell(1, col), "", 7.2, False, rtl)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     doc.save(output_path)
@@ -188,9 +166,7 @@ def build_medium(meta: dict, plan: MediumPlan, output_path: Path) -> Path:
 
 def _remove_trailing_empty_paragraphs(doc) -> None:
     body = doc._element.body
-    # Keep section properties. Remove empty paragraphs after the last table.
     children = list(body)
-    seen_last_table = False
     last_tbl_index = max((i for i, el in enumerate(children) if el.tag == qn("w:tbl")), default=-1)
     for i, el in enumerate(list(body)):
         if i > last_tbl_index and el.tag == qn("w:p"):
@@ -216,13 +192,10 @@ def build_long(meta: dict, plan: LongPlan, output_path: Path) -> Path:
     _cant_split(curriculum.rows[3])
 
     compliance = doc.tables[2]
-    items = list(plan.compliance[:4])
-    while len(items) < 4:
-        items.append(type("Blank", (), dict(area="", milestone="", responsible_person="", target_date="", status=""))())
-    for row_idx, item in enumerate(items, start=1):
-        for col_idx, value in enumerate(_compliance_line(item)):
-            _set_cell_text(compliance.cell(row_idx, col_idx), value, 7.5, False, rtl)
-        _cant_split(compliance.rows[row_idx])
+    # Preserve the four official rows and all 20 dropdown controls. The school-level
+    # compliance section stays as “Select…” for the user to complete in Microsoft Word.
+    for row in compliance.rows[1:5]:
+        _cant_split(row)
 
     _remove_trailing_empty_paragraphs(doc)
     output_path.parent.mkdir(parents=True, exist_ok=True)
