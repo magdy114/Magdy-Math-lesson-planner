@@ -168,6 +168,23 @@ def _fast_image(path: Path) -> str:
 
 def install(core) -> None:
     original_extract = core.extract_curriculum_text
+    original_secure_filename = core.secure_filename
+
+    def safe_secure_filename(filename: str) -> str:
+        """Preserve the real extension when the original basename is Arabic/non-Latin.
+
+        Werkzeug may turn فهرس.png into just 'png', which removes the dot and makes
+        the saved upload look extensionless. The extractor then reports an unsupported
+        file type even though the uploaded file is a valid PNG.
+        """
+        original = str(filename or "")
+        extension = Path(original).suffix.lower().lstrip(".")
+        safe = original_secure_filename(original)
+        safe_extension = Path(safe).suffix.lower().lstrip(".") if safe else ""
+        if extension and safe_extension != extension:
+            safe_stem = original_secure_filename(Path(original).stem) or "curriculum"
+            safe = f"{safe_stem}.{extension}"
+        return safe or (f"curriculum.{extension}" if extension else "curriculum")
 
     def fast_extract(path: Path) -> str:
         suffix = Path(path).suffix.lower()
@@ -181,8 +198,7 @@ def install(core) -> None:
         from curriculum_ai import clean_topics
         return clean_topics(candidates)
 
-    # Extend upload validation to the common image formats used by phones,
-    # WhatsApp, Windows screenshots, scanners, and iPhones.
     core.CURRICULUM_ALLOWED_EXTENSIONS.update(ext.lstrip(".") for ext in IMAGE_EXTENSIONS)
+    core.secure_filename = safe_secure_filename
     core.extract_curriculum_text = fast_extract
     core.refine_topics = local_refine
