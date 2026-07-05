@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='curriculum.css') }}?v=20260705fix2">
+  <link rel="stylesheet" href="{{ url_for('static', filename='curriculum.css') }}?v=20260705fix3">
 </head>
 <body>
   <main class="shell">
@@ -63,10 +63,10 @@
       <div class="section-title"><span>03</span><div><h2 data-ar="المحتوى الدراسي" data-en="Curriculum Content">المحتوى الدراسي</h2><p data-ar="يمكن الجمع بين رفع ملف وكتابة الموضوعات يدويًا" data-en="You may upload a file and also paste topics manually">يمكن الجمع بين رفع ملف وكتابة الموضوعات يدويًا</p></div></div>
       <div class="upload-grid">
         <label class="dropzone">
-          <input type="file" name="curriculum_file" accept=".pdf,.docx,.txt,.md,.csv,.pptx,.xlsx,.png,.jpg,.jpeg,.webp">
+          <input type="file" name="curriculum_file" accept=".pdf,.docx,.txt,.md,.csv,.pptx,.xlsx,.png,.jpg,.jpeg,.webp,.jfif,.bmp,.gif,.tif,.tiff,.heic,.heif,.avif,image/*">
           <div class="upload-icon">↑</div>
           <strong data-ar="اسحب الكتاب أو الفهرس هنا" data-en="Upload the textbook or contents page">اسحب الكتاب أو الفهرس هنا</strong>
-          <span data-ar="PDF, Word, PowerPoint, Excel, Image - حتى 35 MB" data-en="PDF, Word, PowerPoint, Excel, or Image — up to 35 MB">PDF, Word, PowerPoint, Excel, Image - حتى 35 MB</span>
+          <span data-ar="PDF, Word, PowerPoint, Excel أو صورة شائعة — حتى 35 MB" data-en="PDF, Word, PowerPoint, Excel, or a common image format — up to 35 MB">PDF, Word, PowerPoint, Excel أو صورة شائعة — حتى 35 MB</span>
           <em id="fileName" data-ar="لم يتم اختيار ملف" data-en="No file selected">لم يتم اختيار ملف</em>
         </label>
         <label class="topics-box"><b data-ar="أو الصق الموضوعات / الفهرس" data-en="Or paste topics / table of contents">أو الصق الموضوعات / الفهرس</b><textarea name="manual_topics" rows="11" data-ar-placeholder="الوحدة الأولى: النهايات والاتصال&#10;1.1 تقدير النهايات&#10;1.2 إيجاد النهايات جبريًا&#10;الوحدة الثانية: التفاضل" data-en-placeholder="Unit 1: Limits and Continuity&#10;1.1 Estimating Limits&#10;1.2 Evaluating Limits Algebraically&#10;Unit 2: Derivatives" placeholder="Unit 1: Limits and Continuity&#10;1.1 Estimating Limits&#10;1.2 Evaluating Limits Algebraically&#10;Unit 2: Derivatives"></textarea></label>
