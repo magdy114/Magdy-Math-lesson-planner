@@ -9,6 +9,7 @@ import lesson_density_patch
 import lesson_speed_patch
 import lesson_ui_speed_patch
 import lesson_concurrency_patch
+import scalable_runtime_patch
 
 # Use the official lesson-plan template stored in the main assets folder.
 core.TEMPLATE_PATH = core.BASE_DIR / "assets" / "Lesson_Plan_Template_AY2026_2027.docx"
@@ -30,10 +31,12 @@ curriculum_runtime_patch.install(core)
 curriculum_professional_patch.install(core)
 curriculum_professional_hotfix.install(core)
 
-# Keep lesson generation responsive: bounded AI latency, immediate local Word
-# fallback, shared document cache, controlled concurrency, and fast browser UI.
+# Keep generation responsive under several simultaneous teachers:
+# bounded AI latency, local fallback, DOCX cache/queue, shared content cache,
+# process-safe usage/library files, and fast browser download UI.
 lesson_speed_patch.install(core, lesson_engine)
 lesson_concurrency_patch.install(core)
+scalable_runtime_patch.install(core, lesson_engine)
 lesson_ui_speed_patch.install(core.app)
 
 app = core.app
