@@ -1,0 +1,46 @@
+services:
+  - type: web
+    name: magdy-math-lesson-planner
+    runtime: python
+    plan: starter
+    region: frankfurt
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    startCommand: gunicorn -c gunicorn.conf.py expert_entry:app
+    healthCheckPath: /health
+    autoDeployTrigger: checksPass
+    maxShutdownDelaySeconds: 60
+    envVars:
+      - key: FLASK_SECRET
+        generateValue: true
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: WEB_CONCURRENCY
+        value: 2
+      - key: GUNICORN_THREADS
+        value: 4
+      - key: GUNICORN_TIMEOUT
+        value: 180
+      - key: LESSON_MAX_CONCURRENT
+        value: 2
+      - key: LESSON_QUEUE_WAIT_SECONDS
+        value: 75
+      - key: AI_MAX_CONCURRENCY_PER_WORKER
+        value: 2
+      - key: AI_QUEUE_WAIT_SECONDS
+        value: 1.5
+      - key: OPENAI_LESSON_MODEL
+        value: gpt-4.1-mini
+      - key: OPENAI_LESSON_TIMEOUT
+        value: 12
+      - key: OPENAI_LESSON_MAX_TOKENS
+        value: 2200
+      - key: RUNTIME_CACHE_SIZE_MB
+        value: 256
+      - key: LESSON_SHARED_CACHE_TTL
+        value: 21600
+      - key: DAILY_TOTAL_LIMIT
+        value: 1000
+      - key: DAILY_USER_LIMIT
+        value: 50
+      - key: MAX_UPLOAD_MB
+        value: 35
