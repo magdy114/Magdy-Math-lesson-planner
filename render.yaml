@@ -28,12 +28,18 @@ services:
         value: 2
       - key: AI_QUEUE_WAIT_SECONDS
         value: 1.5
+      - key: SOURCE_AI_CONCURRENCY
+        value: 2
+      - key: SOURCE_AI_QUEUE_WAIT
+        value: 3
+      - key: LESSON_SOURCE_CONTEXT_CHARS
+        value: 12000
       - key: OPENAI_LESSON_MODEL
         value: gpt-4.1-mini
       - key: OPENAI_LESSON_TIMEOUT
-        value: 12
+        value: 25
       - key: OPENAI_LESSON_MAX_TOKENS
-        value: 2200
+        value: 2800
       - key: RUNTIME_CACHE_SIZE_MB
         value: 256
       - key: LESSON_SHARED_CACHE_TTL
