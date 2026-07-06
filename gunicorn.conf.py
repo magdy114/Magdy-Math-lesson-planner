@@ -10,9 +10,10 @@ worker_class = "gthread"
 workers = max(1, min(4, int(os.getenv("WEB_CONCURRENCY", "2"))))
 threads = max(2, min(8, int(os.getenv("GUNICORN_THREADS", "4"))))
 
-# Long enough for large PDF extraction, while the app's AI calls use much
-# shorter internal timeouts and local fallbacks.
-timeout = max(60, min(240, int(os.getenv("GUNICORN_TIMEOUT", "180"))))
+# Large scanned textbooks need extra time for upload, page inspection, and OCR fallback.
+# A legacy Render value of 180 seconds is automatically raised to 240 seconds.
+_requested_timeout = int(os.getenv("GUNICORN_TIMEOUT", "240"))
+timeout = max(240, min(300, _requested_timeout))
 graceful_timeout = 30
 keepalive = 5
 
