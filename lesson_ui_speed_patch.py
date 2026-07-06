@@ -13,41 +13,39 @@ FAST_UI_SCRIPT = r"""
   const generateButton = document.getElementById('generateBtn');
   const previewButton = document.getElementById('previewBtn');
 
-  function isArabic() {
-    return document.documentElement.lang !== 'en';
-  }
-
-  function htmlEscape(value) {
-    return String(value || '').replace(/[&<>"']/g, char => ({
-      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-    }[char]));
-  }
-
-  function plainText(value) {
-    return String(value || '')
-      .replace(/<script[\s\S]*?<\/script>/gi, '')
-      .replace(/<style[\s\S]*?<\/style>/gi, '')
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-  }
+  const isArabic = () => document.documentElement.lang !== 'en';
+  const htmlEscape = value => String(value || '').replace(/[&<>"']/g, char => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[char]));
+  const plainText = value => String(value || '')
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 
   function busy(active, seconds = 0) {
     if (overlay) overlay.classList.toggle('hidden', !active);
     if (generateButton) generateButton.disabled = active;
     if (previewButton) previewButton.disabled = active;
     if (!overlay || !active) return;
+
     const heading = overlay.querySelector('h3');
     const paragraph = overlay.querySelector('p');
     if (heading) {
       heading.textContent = isArabic()
-        ? 'جاري تجهيز ملف Word سريعًا...'
-        : 'Preparing the Word file quickly...';
+        ? 'جاري تجهيز ملف Word...'
+        : 'Preparing the Word file...';
     }
     if (paragraph) {
+      const queued = seconds >= 8;
       paragraph.textContent = isArabic()
-        ? `يتم استخدام المحتوى الجاهز دون انتظار OpenAI — ${seconds} ثانية`
-        : `Using ready content without waiting for OpenAI — ${seconds}s`;
+        ? (queued
+            ? `الطلب في قائمة التنفيذ الآمنة مع طلبات المعلمين — ${seconds} ثانية`
+            : `يتم استخدام المحتوى الجاهز دون انتظار OpenAI — ${seconds} ثانية`)
+        : (queued
+            ? `The request is safely queued with other teachers — ${seconds}s`
+            : `Using ready content without waiting for OpenAI — ${seconds}s`);
     }
   }
 
@@ -63,7 +61,7 @@ FAST_UI_SCRIPT = r"""
     }, 1000);
 
     const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 45000);
+    const timeout = window.setTimeout(() => controller.abort(), 95000);
 
     try {
       const response = await fetch(form.action, {
@@ -90,8 +88,10 @@ FAST_UI_SCRIPT = r"""
         return;
       }
 
-      // Hide the dark overlay immediately when the server response arrives.
       busy(false);
+      const cacheHeader = response.headers.get('x-lesson-cache') || '';
+      const cacheHits = response.headers.get('x-lesson-cache-hits') || '';
+      const fromCache = cacheHeader === 'HIT' || (cacheHits && Number(cacheHits) > 0);
 
       const blob = await response.blob();
       const disposition = response.headers.get('content-disposition') || '';
@@ -110,18 +110,21 @@ FAST_UI_SCRIPT = r"""
       window.setTimeout(() => URL.revokeObjectURL(url), 3000);
 
       if (preview) {
+        const cacheText = fromCache
+          ? (isArabic() ? ' وتم استخدام النسخة السريعة المحفوظة.' : ' A fast cached copy was used.')
+          : '';
         preview.innerHTML = `<div class="alert success">${
           isArabic()
-            ? `تم إنشاء الملف وبدأ التحميل خلال ${elapsed} ثانية.`
-            : `The file was created and the download started in ${elapsed} seconds.`
+            ? `تم إنشاء الملف وبدأ التحميل خلال ${elapsed} ثانية.${cacheText}`
+            : `The file was created and the download started in ${elapsed} seconds.${cacheText}`
         }</div>`;
       }
     } catch (error) {
       if (preview) {
         const message = error && error.name === 'AbortError'
           ? (isArabic()
-              ? 'تجاوز الطلب 45 ثانية وتم إيقاف شاشة الانتظار. جرّب درسًا واحدًا أو أعد المحاولة بعد التأكد أن Render في حالة Live.'
-              : 'The request exceeded 45 seconds. Try one lesson or retry after Render is Live.')
+              ? 'تجاوز الطلب 95 ثانية. لم تُفقد البيانات؛ أعد المحاولة بعد قليل أو أنشئ عددًا أقل من الدروس في الطلب الواحد.'
+              : 'The request exceeded 95 seconds. Retry shortly or generate fewer lessons in one request.')
           : String(error || 'Connection error');
         preview.innerHTML = `<div class="alert error">${htmlEscape(message)}</div>`;
       }
@@ -144,17 +147,9 @@ def install(app) -> None:
     def inject_fast_lesson_ui(response):
         try:
             content_type = response.headers.get("Content-Type", "")
-            if (
-                response.status_code == 200
-                and "text/html" in content_type
-                and response.direct_passthrough is False
-            ):
+            if response.status_code == 200 and "text/html" in content_type and response.direct_passthrough is False:
                 body = response.get_data(as_text=True)
-                if (
-                    'id="plannerForm"' in body
-                    and 'id="lesson-fast-download-ui"' not in body
-                    and "</body>" in body
-                ):
+                if 'id="plannerForm"' in body and 'id="lesson-fast-download-ui"' not in body and "</body>" in body:
                     body = body.replace("</body>", FAST_UI_SCRIPT + "\n</body>")
                     response.set_data(body)
                     response.headers["Content-Length"] = str(len(response.get_data()))
