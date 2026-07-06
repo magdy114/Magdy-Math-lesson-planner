@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 import uuid
+from html import unescape
 from pathlib import Path
 
 from werkzeug.utils import secure_filename
@@ -74,8 +75,37 @@ def _extract_pdf_for_topic(path: Path, topic: str) -> str:
         return source_grounding._extract_pdf(path)
 
 
+def _install_clean_generate_error(core) -> None:
+    app = core.app
+    if getattr(app, "_clean_lesson_generate_errors_installed", False):
+        return
+
+    original_generate = app.view_functions.get("generate")
+    if original_generate is None:
+        return
+
+    def generate_with_clean_errors(*args, **kwargs):
+        result = original_generate(*args, **kwargs)
+        response = app.make_response(result)
+        content_type = response.headers.get("Content-Type", "")
+        if response.status_code >= 400 and "text/html" in content_type:
+            page = response.get_data(as_text=True)
+            match = re.search(r'<div class="alert error">(.*?)</div>', page, re.I | re.S)
+            detail = match.group(1) if match else "تعذر إنشاء ملف Word بسبب خطأ داخلي مؤقت."
+            detail = re.sub(r"<[^>]+>", " ", detail)
+            detail = re.sub(r"\s+", " ", unescape(detail)).strip()
+            if len(detail) > 520:
+                detail = detail[:517].rstrip() + "..."
+            return app.response_class(detail, status=response.status_code, mimetype="text/plain")
+        return result
+
+    app.view_functions["generate"] = generate_with_clean_errors
+    app._clean_lesson_generate_errors_installed = True
+
+
 def install(core) -> None:
     lesson_math_family_hotfix.install(core)
+    _install_clean_generate_error(core)
     if getattr(core, "_lesson_upload_relevance_installed", False):
         return
 
