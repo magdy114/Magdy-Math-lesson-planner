@@ -10,6 +10,7 @@ from werkzeug.utils import secure_filename
 
 import lesson_source_grounding_patch as source_grounding
 import lesson_math_family_hotfix
+import lesson_scanned_pdf_vision
 
 
 def _topic_hint(prefix: str) -> str:
@@ -138,10 +139,12 @@ def install(core) -> None:
             if ext == "pdf"
             else source_grounding._extract_file(saved)
         )
+        if ext == "pdf" and not extracted.strip():
+            extracted = lesson_scanned_pdf_vision.extract_scanned_pdf(saved, topic)
         if not extracted.strip():
             return storage.filename, (
-                "[Unsupported or unreadable file: no readable text was extracted. "
-                "Upload a searchable PDF, DOCX, PPTX, XLSX, TXT, or a clear OCR-readable image.]"
+                "[The uploaded file is image-only and no lesson text could be read. "
+                "Check that OPENAI_API_KEY is available, or upload only the relevant lesson pages as a smaller PDF/image.]"
             )
         return storage.filename, extracted
 
