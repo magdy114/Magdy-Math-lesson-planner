@@ -1,4 +1,4 @@
-"""Application bootstrap hooks loaded automatically by Python's site module."""
+"""Lightweight startup hooks for the lesson planner."""
 
 try:
     import lesson_engine
@@ -17,25 +17,5 @@ try:
     if not getattr(lesson_engine, "_math_quality_guard_installed", False):
         math_quality_guard.install(lesson_engine)
         lesson_engine._math_quality_guard_installed = True
-except Exception:
-    pass
-
-try:
-    import word_engine
-    import lesson_layout_patch
-
-    if not getattr(word_engine, "_professional_layout_installed", False):
-        lesson_layout_patch.install(word_engine)
-        word_engine._professional_layout_installed = True
-except Exception:
-    pass
-
-try:
-    import word_engine
-    import lesson_visual_qa
-
-    if not getattr(word_engine, "_visual_qa_installed", False):
-        lesson_visual_qa.install(word_engine)
-        word_engine._visual_qa_installed = True
 except Exception:
     pass
