@@ -19,7 +19,7 @@ services:
       - key: GUNICORN_THREADS
         value: 4
       - key: GUNICORN_TIMEOUT
-        value: 180
+        value: 240
       - key: LESSON_MAX_CONCURRENT
         value: 2
       - key: LESSON_QUEUE_WAIT_SECONDS
@@ -49,4 +49,4 @@ services:
       - key: DAILY_USER_LIMIT
         value: 50
       - key: MAX_UPLOAD_MB
-        value: 35
+        value: 128
