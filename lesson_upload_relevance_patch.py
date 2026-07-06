@@ -108,7 +108,7 @@ def _configure_upload_limit(core) -> None:
         configured = int(os.getenv("MAX_UPLOAD_MB", "128"))
     except Exception:
         configured = 128
-    upload_mb = max(35, min(160, configured))
+    upload_mb = max(128, min(160, configured))
     core.app.config["MAX_CONTENT_LENGTH"] = upload_mb * 1024 * 1024
     core.app.config["MAX_UPLOAD_MB"] = upload_mb
 
