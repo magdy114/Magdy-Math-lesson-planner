@@ -6,6 +6,7 @@ import curriculum_runtime_patch
 import curriculum_professional_patch
 import curriculum_professional_hotfix
 import lesson_density_patch
+import lesson_speed_patch
 
 # Use the official lesson-plan template stored in the main assets folder.
 core.TEMPLATE_PATH = core.BASE_DIR / "assets" / "Lesson_Plan_Template_AY2026_2027.docx"
@@ -26,5 +27,9 @@ word_engine.install_word_upgrade(core)
 curriculum_runtime_patch.install(core)
 curriculum_professional_patch.install(core)
 curriculum_professional_hotfix.install(core)
+
+# Keep lesson generation responsive on Render: bounded AI timeout, no retries,
+# and parallel Word creation for multi-lesson batches.
+lesson_speed_patch.install(core, lesson_engine)
 
 app = core.app
