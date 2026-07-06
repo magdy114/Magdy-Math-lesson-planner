@@ -1,21 +1,6 @@
-"""Lightweight startup hooks for the lesson planner."""
+"""Intentionally lightweight.
 
-try:
-    import lesson_engine
-    import lesson_runtime_patch
-
-    if not getattr(lesson_engine, "_professional_runtime_installed", False):
-        lesson_runtime_patch.install(lesson_engine)
-        lesson_engine._professional_runtime_installed = True
-except Exception:
-    pass
-
-try:
-    import lesson_engine
-    import math_quality_guard
-
-    if not getattr(lesson_engine, "_math_quality_guard_installed", False):
-        math_quality_guard.install(lesson_engine)
-        lesson_engine._math_quality_guard_installed = True
-except Exception:
-    pass
+All production hooks are installed explicitly from expert_entry.py. Keeping this
+module empty prevents Python from importing heavy validation libraries before
+Gunicorn starts and avoids memory spikes on small Render instances.
+"""
