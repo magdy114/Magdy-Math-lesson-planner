@@ -6,6 +6,7 @@ import curriculum_runtime_patch
 import curriculum_professional_patch
 import curriculum_professional_hotfix
 import lesson_density_patch
+import subject_adaptive_patch
 import lesson_speed_patch
 import lesson_ui_speed_patch
 import lesson_concurrency_patch
@@ -16,6 +17,11 @@ core.TEMPLATE_PATH = core.BASE_DIR / "assets" / "Lesson_Plan_Template_AY2026_202
 
 # Increase lesson-plan detail while preserving the official lesson template.
 lesson_density_patch.install(lesson_engine)
+
+# Make the subject entered by the teacher authoritative. English, Arabic,
+# science, humanities, computing, business, and other subjects now use their
+# own pedagogy and cannot fall through to the mathematics content bank.
+subject_adaptive_patch.install(core, lesson_engine, lesson_density_patch)
 
 
 def content_for(lesson):
