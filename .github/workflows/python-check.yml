@@ -5,10 +5,11 @@ on:
     branches:
       - main
       - performance-scale-2026-07-06
+      - fix-subject-detection-english
   pull_request:
 
 jobs:
-  syntax:
+  syntax-and-tests:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -19,3 +20,5 @@ jobs:
           python-version: "3.12"
       - name: Compile Python source
         run: python -m compileall -q .
+      - name: Run subject detection regression tests
+        run: python -m unittest discover -s tests -v
