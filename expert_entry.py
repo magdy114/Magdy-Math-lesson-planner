@@ -7,6 +7,7 @@ import curriculum_professional_patch
 import curriculum_professional_hotfix
 import lesson_density_patch
 import lesson_speed_patch
+import lesson_ui_speed_patch
 
 # Use the official lesson-plan template stored in the main assets folder.
 core.TEMPLATE_PATH = core.BASE_DIR / "assets" / "Lesson_Plan_Template_AY2026_2027.docx"
@@ -28,8 +29,9 @@ curriculum_runtime_patch.install(core)
 curriculum_professional_patch.install(core)
 curriculum_professional_hotfix.install(core)
 
-# Keep lesson generation responsive on Render: bounded AI timeout, no retries,
-# and parallel Word creation for multi-lesson batches.
+# Keep lesson generation responsive: bounded AI latency, immediate local Word
+# fallback, and a browser UI that releases the overlay as soon as the file arrives.
 lesson_speed_patch.install(core, lesson_engine)
+lesson_ui_speed_patch.install(core.app)
 
 app = core.app
