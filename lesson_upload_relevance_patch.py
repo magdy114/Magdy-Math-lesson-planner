@@ -8,6 +8,7 @@ from pathlib import Path
 from werkzeug.utils import secure_filename
 
 import lesson_source_grounding_patch as source_grounding
+import lesson_math_family_hotfix
 
 
 def _topic_hint(prefix: str) -> str:
@@ -74,6 +75,7 @@ def _extract_pdf_for_topic(path: Path, topic: str) -> str:
 
 
 def install(core) -> None:
+    lesson_math_family_hotfix.install(core)
     if getattr(core, "_lesson_upload_relevance_installed", False):
         return
 
