@@ -61,7 +61,7 @@ FAST_UI_SCRIPT = r"""
     }, 1000);
 
     const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 95000);
+    const timeout = window.setTimeout(() => controller.abort(), 230000);
 
     try {
       const response = await fetch(form.action, {
@@ -123,9 +123,11 @@ FAST_UI_SCRIPT = r"""
       if (preview) {
         const message = error && error.name === 'AbortError'
           ? (isArabic()
-              ? 'تجاوز الطلب 95 ثانية. لم تُفقد البيانات؛ أعد المحاولة بعد قليل أو أنشئ عددًا أقل من الدروس في الطلب الواحد.'
-              : 'The request exceeded 95 seconds. Retry shortly or generate fewer lessons in one request.')
-          : String(error || 'Connection error');
+              ? 'تجاوز الطلب 230 ثانية. لم تُفقد البيانات؛ أعد المحاولة بعد قليل أو ارفع صفحات الدرس فقط من الكتب المصورة الكبيرة.'
+              : 'The request exceeded 230 seconds. Retry shortly or upload only the relevant lesson pages from a large scanned book.')
+          : (isArabic()
+              ? 'انقطع الاتصال أثناء رفع أو معالجة الملف. تأكد من اكتمال نشر آخر تحديث، ثم أعد المحاولة.'
+              : 'The connection ended while uploading or processing the file. Ensure the latest deployment is live, then retry.');
         preview.innerHTML = `<div class="alert error">${htmlEscape(message)}</div>`;
       }
     } finally {
